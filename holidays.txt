@@ -1,0 +1,27 @@
+# Bank and Trading Holidays 2026
+# Format: YYYY-MM-DD (One date per line)
+
+# July Uprising Day
+2026-08-05
+
+# Eid-E-Milad-un-Nabi (SAW)
+2026-08-26
+
+# Janmashtami
+2026-09-04
+
+# Durgapuja (Dashami)
+2026-10-20
+2026-10-21
+
+# Victory Day
+2026-12-16
+
+# Christmas Day
+2026-12-25
+
+# Bank Holiday
+2026-12-31
+
+# Every Friday and Saturday are excluded automatically by the pipeline logic.
+
