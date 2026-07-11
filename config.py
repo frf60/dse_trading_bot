@@ -45,7 +45,7 @@ TOP_N_MIDDAY = 2             # combined "running buy" count at the 12:15 PM run
 
 # ---- Google Sheet layout ----
 SPREADSHEET_NAME = "DSE_Trading_Engine"   # used only if SPREADSHEET_ID is None
-SPREADSHEET_ID = None                      # paste your sheet's ID here (preferred)
+SPREADSHEET_ID = 1MX_DorfqYWxKRyl7DxoWvkabW5X4SQ45Xemidou7k8I                      # paste your sheet's ID here (preferred)
 TABS = {
     "active_trades": "ActiveTrades",
     "buy": "Buy",
