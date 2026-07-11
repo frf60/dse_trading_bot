@@ -1,0 +1,46 @@
+name: Daily Stock Analysis
+
+on:
+  schedule:
+    # Runs at 12:15 PM and 3:00 PM Dhaka time, Sun-Thu
+    - cron: '15 6 * * 0-4'
+    - cron: '0 9 * * 0-4'
+  workflow_dispatch: # Allows manual triggering from GitHub Actions tab
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Midday Analysis (12:15 PM)
+        if: github.event.schedule == '15 6 * * 0-4'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python run_midday.py
+
+      - name: Run End-of-Day Analysis (3:00 PM)
+        if: github.event.schedule == '0 9 * * 0-4'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python run_eod.py
+
+      - name: Run Manual Trigger
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          # Default to EOD for manual runs
+          python run_eod.py
