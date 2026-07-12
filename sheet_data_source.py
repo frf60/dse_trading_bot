@@ -139,3 +139,18 @@ def get_historical_data(sheet, ticker: str, days: int = 100) -> pd.DataFrame:
     sub = df[(df["ticker"] == ticker) & (df["date"] >= cutoff)].dropna()
     sub = sub.sort_values("date").set_index("date")
     return sub[["high", "low", "close", "volume"]]
+
+
+def get_live_price(sheet, ticker: str) -> float:
+    """
+    Most recent close price for `ticker` from RawDailyPrices. Named
+    get_live_price to match what state_manager.py's Hold/Sell check calls —
+    now that the pipeline runs once daily (no more intraday checks), "live"
+    means "the freshest price you've pasted in" rather than a real-time
+    quote, so this reads from the same ledger everything else uses instead
+    of hitting an external API.
+    """
+    hist = get_historical_data(sheet, ticker, days=30)
+    if hist.empty:
+        raise RuntimeError(f"No price data for {ticker} in RawDailyPrices yet.")
+    return float(hist.iloc[-1]["close"])
