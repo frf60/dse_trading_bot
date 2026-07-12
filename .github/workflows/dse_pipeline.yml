@@ -1,0 +1,35 @@
+name: DSE Trading Engine
+
+on:
+  schedule:
+    # Cron time is UTC. Asia/Dhaka is UTC+6 year-round (no DST).
+    # Day-of-week: 0=Sun ... 4=Thu — DSE's trading week (weekend is Fri/Sat).
+    # Fires once, after market close — paste that day's data into RawStaging
+    # before this runs (or just trigger manually once you're done pasting).
+    - cron: "0 9 * * 0-4"    # 3:00 PM Dhaka time
+  workflow_dispatch: {}       # manual trigger from the Actions tab — use this
+                               # if you finish pasting at a different time
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Execute pipeline
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python run_eod.py
+
+# Note: GitHub's scheduled cron is best-effort, not to-the-minute — Actions
+# documents delays of several minutes during high load. If today's paste
+# isn't done by 3 PM, just trigger this manually (Actions tab -> this
+# workflow -> "Run workflow") once you are — run_eod.py stamps rows with
+# the date at actual execution time, so it's still correct either way.
