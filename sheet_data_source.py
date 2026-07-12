@@ -120,23 +120,53 @@ def ingest_staging(sheet, run_date: str = None) -> dict:
             "duplicates_ignored": len(clean_rows) - len(new_rows)}
 
 
+_price_ledger_cache = None  # DataFrame, loaded once per process
+
+
+def _load_price_ledger(sheet, force_reload: bool = False) -> pd.DataFrame:
+    """
+    Reads RawDailyPrices ONCE per process and caches it in memory.
+
+    Root cause of the quota-exceeded crash: get_historical_data() used to
+    call read_records() (a fresh Sheets API read) every time it ran — and
+    scan_universe() calls it once per ticker. With ~277 tickers in the A/B
+    universe that's 500+ Sheets API reads in a few seconds, blowing well
+    past Google's default per-minute read quota. Now the whole ledger is
+    read once, here, and every other function in this module filters the
+    same in-memory copy.
+    """
+    global _price_ledger_cache
+    if _price_ledger_cache is not None and not force_reload:
+        return _price_ledger_cache
+
+    records = read_records(sheet, "raw_prices", RAW_HEADER)
+    df = pd.DataFrame(records, columns=RAW_HEADER)
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"])
+        for col in ("high", "low", "close", "volume"):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=["ticker"])
+
+    _price_ledger_cache = df
+    return df
+
+
 def get_historical_data(sheet, ticker: str, days: int = 100) -> pd.DataFrame:
     """
     Columns: high, low, close, volume — indexed by date, oldest -> newest.
     (No 'open' column — see module docstring.)
     """
     from datetime import timedelta
-    records = read_records(sheet, "raw_prices", RAW_HEADER)
-    df = pd.DataFrame(records, columns=RAW_HEADER)
+    df = _load_price_ledger(sheet)
+    empty = pd.DataFrame(columns=["high", "low", "close", "volume"])
+    empty.index = pd.DatetimeIndex([], name="date")
     if df.empty:
-        return df.set_index(pd.DatetimeIndex([], name="date"))[["high", "low", "close", "volume"]]
-
-    df["date"] = pd.to_datetime(df["date"])
-    for col in ("high", "low", "close", "volume"):
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+        return empty
 
     cutoff = pd.Timestamp(date.today() - timedelta(days=int(days * 1.6)))
     sub = df[(df["ticker"] == ticker) & (df["date"] >= cutoff)].dropna()
+    if sub.empty:
+        return empty
     sub = sub.sort_values("date").set_index("date")
     return sub[["high", "low", "close", "volume"]]
 
@@ -147,8 +177,8 @@ def get_live_price(sheet, ticker: str) -> float:
     get_live_price to match what state_manager.py's Hold/Sell check calls —
     now that the pipeline runs once daily (no more intraday checks), "live"
     means "the freshest price you've pasted in" rather than a real-time
-    quote, so this reads from the same ledger everything else uses instead
-    of hitting an external API.
+    quote, so this reads from the same in-memory ledger as everything else
+    instead of hitting the Sheets API per ticker.
     """
     hist = get_historical_data(sheet, ticker, days=30)
     if hist.empty:
