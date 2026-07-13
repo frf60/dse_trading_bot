@@ -49,8 +49,27 @@ def get_tab(sheet, tab_key: str, header: list):
 
 
 def read_records(sheet, tab_key: str, header: list) -> list:
+    """
+    Deliberately NOT using gspread's get_all_records() — that trusts
+    whatever text is literally in the sheet's row 1 as the dict keys. If a
+    tab's header row ever ends up out of sync with this project's own
+    `header` list (e.g. created before a column-naming change, or hand-
+    edited), get_all_records() silently returns dicts keyed by the wrong
+    names and every r["ticker"]-style lookup downstream breaks with a
+    KeyError. Reading positionally and re-zipping against `header` here
+    makes every caller correct regardless of what row 1 actually says —
+    row 1 is only ever treated as "the row to skip", not as data.
+    """
     ws = get_tab(sheet, tab_key, header)
-    return ws.get_all_records()
+    values = ws.get_all_values()
+    if len(values) < 2:
+        return []
+    n = len(header)
+    records = []
+    for row in values[1:]:
+        padded = row[:n] + [""] * max(0, n - len(row))
+        records.append(dict(zip(header, padded)))
+    return records
 
 
 def overwrite_tab(sheet, tab_key: str, header: list, rows: list):
