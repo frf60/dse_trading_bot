@@ -27,11 +27,11 @@ def main():
     sheet = open_sheet()
 
     # -1. One-time historical backfill, if data/amarstock_backfill.csv has
-    #     been committed to the repo (see README "Backfilling"). No-op if
-    #     the file isn't there, or if everything in it is already ingested.
+    #     been committed to the repo (see README "Backfilling"). Always
+    #     logged, even when not found — this used to be silent, which is
+    #     exactly why "still 0 tickers scored" was hard to diagnose.
     backfill_result = ingest_local_backfill(sheet)
-    if backfill_result.get("found"):
-        print(f"[{run_date}] Local backfill file: {backfill_result}")
+    print(f"[{run_date}] Local backfill file: {backfill_result}")
 
     # 0. Pull in today's pasted prices (no-op if RawStaging is empty — e.g.
     #    if you paste after this run already fired, see README "Timing").
@@ -73,4 +73,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
