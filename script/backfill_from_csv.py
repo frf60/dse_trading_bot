@@ -20,8 +20,9 @@ Safe to re-run: de-duplicates on (date, ticker) against whatever's already
 in RawDailyPrices, same as the daily paste-import path.
 """
 import sys
+import time
 import pandas as pd
-from sheets_manager import open_sheet, read_records, append_rows
+from sheets_manager import open_sheet, read_records, append_rows_with_retry
 from sheet_data_source import RAW_HEADER
 
 
@@ -74,11 +75,14 @@ def main(csv_path: str):
     print(f"{len(new_rows)} new rows to append ({len(df) - len(new_rows)} already present).")
     if new_rows:
         # gspread has per-request size limits — batch in chunks rather than
-        # one giant append_rows call for large backfills.
+        # one giant append_rows call for large backfills. append_rows_with_retry
+        # backs off automatically if a burst of chunks trips the write quota.
         CHUNK = 2000
         for i in range(0, len(new_rows), CHUNK):
-            append_rows(sheet, "raw_prices", RAW_HEADER, new_rows[i:i + CHUNK])
-            print(f"  appended rows {i} to {i + len(new_rows[i:i + CHUNK])}")
+            chunk = new_rows[i:i + CHUNK]
+            append_rows_with_retry(sheet, "raw_prices", RAW_HEADER, chunk)
+            print(f"  appended rows {i} to {i + len(chunk)}")
+            time.sleep(1)
 
     print("Backfill complete.")
 
