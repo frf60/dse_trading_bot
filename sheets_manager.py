@@ -12,24 +12,22 @@ One-time setup:
      the full contents of the JSON key file.
   5. Put the Sheet's ID (from its URL) into config.SPREADSHEET_ID.
 """
-import os
 import json
+import os
 import gspread
 from google.oauth2.service_account import Credentials
-from config import SPREADSHEET_NAME, SPREADSHEET_ID, TABS
-
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-
 
 def _client():
-    raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if not raw:
-        raise RuntimeError(
-            "GOOGLE_SERVICE_ACCOUNT_JSON env var not set. Locally, export the contents "
-            "of your service-account key file into that variable; in CI, set it as a secret."
-        )
-    creds = Credentials.from_service_account_info(json.loads(raw), scopes=SCOPES)
-    return gspread.authorize(creds)
+    # সরাসরি google_key.json ফাইল থেকে রিড করবে
+    key_path = "google_key.json"
+    if os.path.exists(key_path):
+        with open(key_path, 'r') as f:
+            service_account_info = json.load(f)
+        creds = Credentials.from_service_account_info(service_account_info)
+        return gspread.authorize(creds)
+    else:
+        # ফাইল না পেলে এরর দিবে
+        raise RuntimeError("google_key.json file not found in root directory!")
 
 
 def open_sheet():
