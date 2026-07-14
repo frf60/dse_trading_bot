@@ -54,6 +54,13 @@ def main():
     print(f"[{run_date}] Scanning universe...")
     scored = scan_universe(sheet)
     print(f"[{run_date}] {len(scored)} tickers scored.")
+    if scored:
+        above_7 = sum(1 for s in scored if s["score"] >= 7)
+        best = max(s["score"] for s in scored)
+        print(f"[{run_date}] Score distribution: {above_7}/{len(scored)} scored >= 7 "
+              f"(MIN_SCORE gate), best score seen = {best}/10. An empty Buy list for a "
+              f"horizon below just means none of those cleared MIN_SCORE and MIN_RRR "
+              f"together for that horizon — not an error.")
     watchlists = build_watchlists(scored, top_n=TOP_N_EOD)
 
     buy_rows = []
