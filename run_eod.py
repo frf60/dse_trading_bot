@@ -1,20 +1,21 @@
 """
-3:00 PM run — after market close.
-Ingests today's pasted price data (RawStaging -> RawDailyPrices) -> full
-universe scan -> score everything -> build 7+/14+/30+ watchlists (up to 5
-each = up to 15 Buy rows, fewer if a stock ranks in more than one horizon)
--> evaluate yesterday's ACTIVE trades against today's close for Hold/Sell
--> append tomorrow's Buy list.
+Single daily run — after market close.
+Ingests today's pasted price data (RawStaging -> RawDailyPrices) -> scores
+the full A/B universe SEPARATELY per horizon (7+/14+/30+ each use their own
+indicator periods, config.INDICATOR_PARAMS) -> builds each horizon's top-5
+list from perfect (MIN_SCORE=10) scores only, excluding tickers already an
+open ACTIVE position for that horizon -> evaluates yesterday's ACTIVE
+trades against today's close for Hold/Sell -> appends today's fresh Buy list.
 """
 from datetime import date
-from config import TOP_N_EOD, HORIZONS
+from config import TOP_N_EOD, HORIZONS, MIN_BARS_REQUIRED, MIN_SCORE
 from market_calendar import is_market_holiday
 from scan import scan_universe, build_watchlists
 from sheet_data_source import ingest_staging, ingest_local_backfill, ledger_diagnostics
 from sheets_manager import open_sheet, overwrite_tab
 from state_manager import (
     evaluate_active_trades, apply_status_updates, add_new_buys,
-    ACTIVE_HEADER, VIEW_HEADER,
+    get_active_ticker_horizons, ACTIVE_HEADER, VIEW_HEADER,
 )
 
 
@@ -28,19 +29,14 @@ def main():
 
     # -1. One-time historical backfill, if data/amarstock_backfill.csv has
     #     been committed to the repo (see README "Backfilling"). Always
-    #     logged, even when not found — this used to be silent, which is
-    #     exactly why "still 0 tickers scored" was hard to diagnose.
+    #     logged, even when not found.
     backfill_result = ingest_local_backfill(sheet)
     print(f"[{run_date}] Local backfill file: {backfill_result}")
 
-    # 0. Pull in today's pasted prices (no-op if RawStaging is empty — e.g.
-    #    if you paste after this run already fired, see README "Timing").
+    # 0. Pull in today's pasted prices (no-op if RawStaging is empty).
     ingest_result = ingest_staging(sheet, run_date)
     print(f"[{run_date}] Price ingest: {ingest_result}")
 
-    # Ground truth on what's actually in the ledger now, so "0 tickers
-    # scored" (if it happens) comes with an immediate explanation instead
-    # of a guessing game.
     diag = ledger_diagnostics(sheet)
     print(f"[{run_date}] RawDailyPrices ledger: {diag}")
 
@@ -50,18 +46,30 @@ def main():
     overwrite_tab(sheet, "hold", VIEW_HEADER, hold_rows)
     overwrite_tab(sheet, "sell", VIEW_HEADER, sell_rows)
 
-    # 2. Scan the full A/B universe and build tomorrow's watchlists
+    # Read AFTER apply_status_updates, so a stock that just closed today
+    # (hit target/SL) is no longer considered "active" and is free to be
+    # picked again if it still qualifies — only genuinely still-open
+    # positions get excluded from today's fresh picks.
+    active_pairs = get_active_ticker_horizons(sheet)
+    print(f"[{run_date}] {len(active_pairs)} (ticker, horizon) position(s) "
+          f"already ACTIVE — excluded from today's new picks.")
+
+    # 2. Scan the full A/B universe — scored independently per horizon
     print(f"[{run_date}] Scanning universe...")
-    scored = scan_universe(sheet)
-    print(f"[{run_date}] {len(scored)} tickers scored.")
-    if scored:
-        above_7 = sum(1 for s in scored if s["score"] >= 7)
-        best = max(s["score"] for s in scored)
-        print(f"[{run_date}] Score distribution: {above_7}/{len(scored)} scored >= 7 "
-              f"(MIN_SCORE gate), best score seen = {best}/10. An empty Buy list for a "
-              f"horizon below just means none of those cleared MIN_SCORE and MIN_RRR "
-              f"together for that horizon — not an error.")
-    watchlists = build_watchlists(scored, top_n=TOP_N_EOD)
+    scan_results = scan_universe(sheet)
+    for horizon in HORIZONS:
+        h_scored = scan_results[horizon]
+        if h_scored:
+            perfect = sum(1 for s in h_scored if s["score"] >= MIN_SCORE)
+            best = max(s["score"] for s in h_scored)
+            print(f"  {horizon}: {len(h_scored)} ticker(s) had enough history "
+                  f"(>= {MIN_BARS_REQUIRED[horizon]} bars), {perfect} scored a "
+                  f"perfect {MIN_SCORE}/10, best seen = {best}/10.")
+        else:
+            print(f"  {horizon}: 0 tickers had enough history yet "
+                  f"(needs >= {MIN_BARS_REQUIRED[horizon]} bars).")
+
+    watchlists = build_watchlists(scan_results, top_n=TOP_N_EOD, exclude=active_pairs)
 
     buy_rows = []
     for horizon in HORIZONS:
@@ -72,6 +80,8 @@ def main():
             s["stop_loss"], s["target_1"], s["target_2"], s["rrr"], s["score"],
             run_date, "ACTIVE",
         ] for s in setups]
+        print(f"  {horizon}: {len(setups)} new Buy pick(s) added "
+              f"(top {TOP_N_EOD}, fewer if fewer cleared the bar).")
 
     overwrite_tab(sheet, "buy", ACTIVE_HEADER, buy_rows)
     print(f"[{run_date}] EOD run complete: {len(buy_rows)} buy rows, "
