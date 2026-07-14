@@ -26,6 +26,17 @@ def load_active_trades(sheet):
     return [r for r in records if r.get("status") == "ACTIVE"]
 
 
+def get_active_ticker_horizons(sheet) -> set:
+    """
+    Set of (ticker, horizon) pairs currently ACTIVE — i.e. already sitting
+    in Hold. Used so a stock that's already a tracked position doesn't get
+    re-added as a fresh Buy for the same horizon just because it still
+    scores well; scan.build_watchlists() skips these before ranking so a
+    different, not-yet-held stock can take the spot instead.
+    """
+    return {(r["ticker"], r["horizon"]) for r in load_active_trades(sheet)}
+
+
 def add_new_buys(sheet, setups: list, run_date: str):
     """setups: output of risk_manager.rank_and_filter(). Appended with status ACTIVE."""
     rows = [[
@@ -82,3 +93,4 @@ def apply_status_updates(sheet, status_updates: dict):
             r["status"] = status_updates[key]
     rows = [[r[k] for k in ACTIVE_HEADER] for r in all_records]
     overwrite_tab(sheet, "active_trades", ACTIVE_HEADER, rows)
+
