@@ -2,8 +2,10 @@
 Pure-pandas technical indicators. No pandas-ta / TA-Lib dependency, so
 there's nothing extra to compile or version-pin on a GitHub Actions runner.
 
-Every function takes/returns pandas Series. `compute_all(df)` expects a
-DataFrame with columns: open, high, low, close, volume, indexed oldest -> newest.
+Every function takes/returns pandas Series. `compute_all(df, params)`
+expects a DataFrame with columns: high, low, close, volume (no "open" —
+nothing here reads it), indexed oldest -> newest, plus a `params` dict
+(see config.INDICATOR_PARAMS) giving the horizon-specific periods to use.
 """
 import pandas as pd
 import numpy as np
@@ -48,14 +50,24 @@ def atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / length, adjust=False).mean()
 
 
-def compute_all(df: pd.DataFrame) -> pd.DataFrame:
-    """Attach every indicator the scoring engine needs, on a copy of df."""
+def compute_all(df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    """
+    Attach every indicator the scoring engine needs, on a copy of df, using
+    the horizon-specific periods in `params` (config.INDICATOR_PARAMS[horizon]).
+    Column names are generic (ema_fast/ema_slow/rsi/sma/vol_avg) rather than
+    baked-in numbers, since what "fast"/"slow" means changes per horizon.
+
+    ATR stays fixed at 14 regardless of horizon — that's Stop Loss sizing
+    (risk_manager.py), a separate concern from this trend/momentum scoring.
+    """
     out = df.copy()
-    out["ema20"] = ema(out["close"], 20)
-    out["ema50"] = ema(out["close"], 50)
-    out["rsi14"] = rsi(out["close"], 14)
-    out["macd_line"], out["signal_line"], out["macd_hist"] = macd(out["close"])
+    out["ema_fast"] = ema(out["close"], params["ema_fast"])
+    out["ema_slow"] = ema(out["close"], params["ema_slow"])
+    out["rsi"] = rsi(out["close"], params["rsi"])
+    out["macd_line"], out["signal_line"], out["macd_hist"] = macd(
+        out["close"], params["macd_fast"], params["macd_slow"], params["macd_signal"]
+    )
     out["atr14"] = atr(out, 14)
-    out["sma20"] = sma(out["close"], 20)          # Bollinger middle band
-    out["vol_sma20"] = sma(out["volume"], 20)
+    out["sma"] = sma(out["close"], params["sma"])              # Bollinger-style middle band
+    out["vol_avg"] = sma(out["volume"], params["vol_avg"])
     return out
