@@ -1,0 +1,14 @@
+# SIP Long-Term Alert watchlist — one ticker per line, '#' for comments.
+# To add more later: just add a new line and commit/push. Tickers are
+# matched case-insensitively against RawDailyPrices, but keep this file
+# uppercase for consistency with how DSE tickers normally appear.
+BRACBANK
+EBL
+PRIMEBANK
+CITYBANK
+SQURPHARMA
+MARICO
+BERGERPBL
+GP
+JAMUNAOIL
+BSRMLTD
