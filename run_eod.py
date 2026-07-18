@@ -1,11 +1,19 @@
 """
 Single daily run — after market close.
 Ingests today's pasted price data (RawStaging -> RawDailyPrices) -> scores
-the full A/B universe SEPARATELY per horizon (7+/14+/30+ each use their own
-indicator periods, config.INDICATOR_PARAMS) -> builds each horizon's top-5
-list from perfect (MIN_SCORE=10) scores only, excluding tickers already an
-open ACTIVE position for that horizon -> evaluates yesterday's ACTIVE
-trades against today's close for Hold/Sell -> appends today's fresh Buy list.
+config.TRADING_WATCHLIST (a fixed, explicit list, not the whole A/B
+universe) SEPARATELY per horizon (7+/14+/30+ each use their own indicator
+periods AND RSI range, config.INDICATOR_PARAMS / config.RSI_RANGES) ->
+builds each horizon's top-N list (config.TOP_N_EOD) from score >= MIN_SCORE
+(9 or 10 out of 10), entry/SL/targets from support/resistance where found
+(fallback percentages otherwise, see risk_manager.py), excluding tickers
+already an open ACTIVE position for that horizon -> evaluates yesterday's
+ACTIVE trades against today's close for Hold/Sell -> appends today's fresh
+Buy list.
+
+Investment (long-term SIP) watchlist checks run as a SEPARATE script
+(scripts/investment_check.py), as an additional GitHub Actions step right
+after this one, not from inside this file — see that script's docstring.
 """
 from datetime import date
 from config import TOP_N_EOD, HORIZONS, MIN_BARS_REQUIRED, MIN_SCORE
@@ -54,17 +62,17 @@ def main():
     print(f"[{run_date}] {len(active_pairs)} (ticker, horizon) position(s) "
           f"already ACTIVE — excluded from today's new picks.")
 
-    # 2. Scan the full A/B universe — scored independently per horizon
-    print(f"[{run_date}] Scanning universe...")
+    # 2. Scan config.TRADING_WATCHLIST — scored independently per horizon
+    print(f"[{run_date}] Scanning TRADING_WATCHLIST...")
     scan_results = scan_universe(sheet)
     for horizon in HORIZONS:
         h_scored = scan_results[horizon]
         if h_scored:
-            perfect = sum(1 for s in h_scored if s["score"] >= MIN_SCORE)
+            qualifying = sum(1 for s in h_scored if s["score"] >= MIN_SCORE)
             best = max(s["score"] for s in h_scored)
             print(f"  {horizon}: {len(h_scored)} ticker(s) had enough history "
-                  f"(>= {MIN_BARS_REQUIRED[horizon]} bars), {perfect} scored a "
-                  f"perfect {MIN_SCORE}/10, best seen = {best}/10.")
+                  f"(>= {MIN_BARS_REQUIRED[horizon]} bars), {qualifying} scored "
+                  f">= {MIN_SCORE}/10, best seen = {best}/10.")
         else:
             print(f"  {horizon}: 0 tickers had enough history yet "
                   f"(needs >= {MIN_BARS_REQUIRED[horizon]} bars).")
@@ -78,8 +86,12 @@ def main():
         buy_rows += [[
             s["ticker"], s["horizon"], s["entry_low"], s["entry_high"],
             s["stop_loss"], s["target_1"], s["target_2"], s["rrr"], s["score"],
-            run_date, "ACTIVE",
+            s["sl_source"], s["target_source"], run_date, "ACTIVE",
         ] for s in setups]
+        for s in setups:
+            print(f"  {horizon}: {s['ticker']} — score {s['score']}/10, "
+                  f"SL via {s['sl_source']}, targets via {s['target_source']}, "
+                  f"RRR {s['rrr']}")
         print(f"  {horizon}: {len(setups)} new Buy pick(s) added "
               f"(top {TOP_N_EOD}, fewer if fewer cleared the bar).")
 
