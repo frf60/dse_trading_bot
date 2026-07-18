@@ -94,13 +94,13 @@ STRICT_MACD_CROSS = True
 # Horizon KEYS are kept as "7+"/"14+"/"30+" (unchanged labels, to avoid a
 # risky rename across every file and to keep existing ActiveTrades rows
 # readable) but their MEANING now matches your new day-range spec exactly:
-#   "7+"  = 4-13 day hold,  4-8% fallback target range
-#   "14+" = 14-29 day hold, 9-12% fallback target range
-#   "30+" = 30-60 day hold, 13-20% fallback target range
+#   "7+"  = 4-13 day hold,  3-6% fallback target range
+#   "14+" = 14-29 day hold, 7-10% fallback target range
+#   "30+" = 30-60 day hold, 11-15% fallback target range
 HORIZONS = {
-    "7+":  {"sl_atr": 1.5, "sr_lookback_days": 60,  "fallback_pct_low": 0.04, "fallback_pct_high": 0.08},
-    "14+": {"sl_atr": 2.0, "sr_lookback_days": 90,  "fallback_pct_low": 0.09, "fallback_pct_high": 0.12},
-    "30+": {"sl_atr": 3.0, "sr_lookback_days": 150, "fallback_pct_low": 0.13, "fallback_pct_high": 0.20},
+    "7+":  {"sl_atr": 1.5, "sr_lookback_days": 60,  "fallback_pct_low": 0.03, "fallback_pct_high": 0.06},
+    "14+": {"sl_atr": 2.0, "sr_lookback_days": 90,  "fallback_pct_low": 0.07, "fallback_pct_high": 0.10},
+    "30+": {"sl_atr": 3.0, "sr_lookback_days": 150, "fallback_pct_low": 0.11, "fallback_pct_high": 0.15},
 }
 SWING_WINDOW = 3             # bars on each side to confirm a swing high/low (see indicators.find_swing_points)
 SUPPORT_BUFFER_PCT = 0.01    # SL sits this much below the found support level, not exactly on it
