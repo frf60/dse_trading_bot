@@ -85,3 +85,4 @@ def get_live_price(ticker: str) -> float:
     if ticker not in _live_price_cache:
         raise RuntimeError(f"{ticker} not found in the live price snapshot.")
     return _live_price_cache[ticker]
+
