@@ -47,7 +47,12 @@ def build_setup(ticker: str, hist, atr14: float, score: float, horizon: str) -> 
     else:
         sl = round(support, 2)
 
-    resistances = resistance_levels(hist, close, lookback, window=SWING_WINDOW)
+    raw_resistances = resistance_levels(hist, close, lookback, window=SWING_WINDOW)
+    
+    # FIX: Filter out any resistance levels that are lower than or equal to our entry_high.
+    # This prevents Target 1 from overlapping with the top of our buying zone.
+    resistances = [r for r in raw_resistances if r > entry_high]
+
     fallback_t1 = entry_high * (1 + p["fallback_pct_low"])
     fallback_t2 = entry_high * (1 + p["fallback_pct_high"])
 
@@ -101,7 +106,9 @@ def build_setup(ticker: str, hist, atr14: float, score: float, horizon: str) -> 
         "sl_source": sl_source,
         "target_source": target_source,
     }
-    setup["valid"] = risk > 0 and t2 > t1 > entry_mid and rrr >= MIN_RRR and score >= MIN_SCORE
+    
+    # FIX: Ensure validity check mandates t1 > entry_high instead of entry_mid
+    setup["valid"] = risk > 0 and t2 > t1 > entry_high and rrr >= MIN_RRR and score >= MIN_SCORE
     return setup
 
 
