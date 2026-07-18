@@ -14,11 +14,10 @@ from sheet_data_source import get_live_price
 
 ACTIVE_HEADER = [
     "ticker", "horizon", "entry_low", "entry_high", "stop_loss",
-    "target_1", "target_2", "rrr", "score", "date_added", "status",
+    "target_1", "target_2", "rrr", "score", "sl_source", "target_source",
+    "date_added", "status",
 ]
-VIEW_HEADER = ["ticker", "horizon", "entry_low", "entry_high", "stop_loss",
-               "target_1", "target_2", "rrr", "score", "date_added",
-               "status", "live_price", "last_checked"]
+VIEW_HEADER = ACTIVE_HEADER + ["live_price", "last_checked"]
 
 
 def load_active_trades(sheet):
@@ -42,7 +41,7 @@ def add_new_buys(sheet, setups: list, run_date: str):
     rows = [[
         s["ticker"], s["horizon"], s["entry_low"], s["entry_high"],
         s["stop_loss"], s["target_1"], s["target_2"], s["rrr"], s["score"],
-        run_date, "ACTIVE",
+        s["sl_source"], s["target_source"], run_date, "ACTIVE",
     ] for s in setups]
     append_rows(sheet, "active_trades", ACTIVE_HEADER, rows)
     return rows
