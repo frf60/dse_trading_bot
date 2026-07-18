@@ -1,14 +1,13 @@
 """
-Shared logic: scan the filtered A/B universe and score every ticker
-SEPARATELY for each horizon (7+/14+/30+ each use their own indicator
-periods — see config.INDICATOR_PARAMS), then turn scores into watchlists.
-Called once daily by run_eod.py after market close.
+Shared logic: scan config.TRADING_WATCHLIST (a fixed, explicit list — not
+the whole A/B category universe anymore, per your explicit request) and
+score every ticker SEPARATELY for each horizon (7+/14+/30+ each use their
+own indicator periods AND RSI range — see config.INDICATOR_PARAMS /
+config.RSI_RANGES), then turn scores into watchlists using support/
+resistance-based (or fallback %) entry/SL/targets. Called once daily by
+run_eod.py after market close.
 """
-from config import (
-    ALLOWED_CATEGORIES, EXCLUDED_SECTORS, MIN_BARS_REQUIRED, HORIZONS,
-    INDICATOR_PARAMS, TOP_N_EOD,
-)
-from data_fetcher import get_ticker_universe
+from config import MIN_BARS_REQUIRED, HORIZONS, INDICATOR_PARAMS, TOP_N_EOD, TRADING_WATCHLIST
 from sheet_data_source import get_historical_data
 from indicators import compute_all
 from scoring import score_row
@@ -17,23 +16,23 @@ from risk_manager import build_setup, rank_and_filter
 
 def scan_universe(sheet) -> dict:
     """
-    Returns {horizon: [{"ticker","close","atr14","score"}, ...]}. The same
+    Returns {horizon: [{"ticker","hist","atr14","score"}, ...]}. The same
     ticker can appear with a different score under each horizon key, since
-    each horizon computes its own indicators from its own periods — that's
-    the point, not a bug, if 7+/14+/30+ scores differ for the same stock.
+    each horizon computes its own indicators from its own periods (and its
+    own RSI range) — that's the point, not a bug, if 7+/14+/30+ scores
+    differ for the same stock. `hist` (the raw OHLCV slice) is carried
+    through for risk_manager's support/resistance lookup — no separate
+    fetch needed there.
     """
-    universe = get_ticker_universe()
-    universe = universe[
-        universe["category"].isin(ALLOWED_CATEGORIES)
-        & ~universe["sector"].isin(EXCLUDED_SECTORS)
-    ]
-
     results = {h: [] for h in HORIZONS}
-    for ticker in universe["ticker"]:
+    for ticker in TRADING_WATCHLIST:
         try:
             hist = get_historical_data(sheet, ticker)
         except Exception as e:
             print(f"  [skip] {ticker}: {e}")
+            continue
+        if hist.empty:
+            print(f"  [skip] {ticker}: no price data in RawDailyPrices yet")
             continue
 
         for horizon in HORIZONS:
@@ -42,10 +41,10 @@ def scan_universe(sheet) -> dict:
             try:
                 enriched = compute_all(hist, INDICATOR_PARAMS[horizon])
                 curr, prev = enriched.iloc[-1], enriched.iloc[-2]
-                result = score_row(curr, prev)
+                result = score_row(curr, prev, horizon)
                 results[horizon].append({
                     "ticker": ticker,
-                    "close": float(curr["close"]),
+                    "hist": hist,
                     "atr14": float(curr["atr14"]),
                     "score": result["total"],
                 })
@@ -68,7 +67,7 @@ def build_watchlists(scan_results: dict, top_n: int = TOP_N_EOD, exclude: set = 
     watchlists = {}
     for horizon in HORIZONS:
         setups = [
-            build_setup(s["ticker"], s["close"], s["atr14"], s["score"], horizon)
+            build_setup(s["ticker"], s["hist"], s["atr14"], s["score"], horizon)
             for s in scan_results[horizon]
             if (s["ticker"], horizon) not in exclude
         ]
