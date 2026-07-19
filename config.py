@@ -7,7 +7,7 @@ Edit values here to tune behavior — nothing else should need touching.
 # whole A/B category — a deliberate narrowing per your explicit request.
 # Add/remove tickers freely.
 TRADING_WATCHLIST = [
-"PUBALIBANK", "UTTARABANK", "TRUSTBANK", "DHAKABANK", "SOUTHEASTB", "BATBC", "UPGDCL", "MPETROLEUM", "PADMAOIL", "SUMITPOWER", "DUTCHBANGL", "JAMUNABANK", "MTB", "SHAHJABANK", "UNIQUEHRL", "DOREENPWR", "IDLC", "ACMELAB", "ENVOYTEX", "SQUARETEXT", "CONFIDCEM", "DBH", "MALEKSPIN", "MATINSPINN", "SAIHAMTEX", "SAIHAMCOT", "BSRMSTEEL", "UPGDCL", "INDEXAGRO", "WALTONHIL", "APEXFOOT", "ESQUIRENIT", "BXPHARMA", "ARGONDENIM", "GREENDELT", "BSC", "LHB", "PREMIERCEM", "HWAWELLTEX", "MHSML", "SIMTEX", "EHL", "BANKASIA", "ROBI", "NCCBANK",
+    "PUBALIBANK", "UTTARABANK", "TRUSTBANK", "DHAKABANK", "SOUTHEASTB", "BATBC", "UPGDCL", "MPETROLEUM", "PADMAOIL", "SUMITPOWER", "DUTCHBANGL", "JAMUNABANK", "MTB", "SHAHJABANK", "UNIQUEHRL", "DOREENPWR", "IDLC", "ACMELAB", "ENVOYTEX", "SQUARETEXT", "CONFIDCEM", "DBH", "MALEKSPIN", "MATINSPINN", "SAIHAMTEX", "SAIHAMCOT", "BSRMSTEEL", "UPGDCL", "INDEXAGRO", "WALTONHIL", "APEXFOOT", "ESQUIRENIT", "BXPHARMA", "ARGONDENIM", "GREENDELT", "BSC", "LHB", "PREMIERCEM", "HWAWELLTEX", "MHSML", "SIMTEX", "EHL", "BANKASIA", "ROBI", "NCCBANK",
 ]
 
 # ---- Universe filters (kept for reference / other scripts, but the
@@ -76,45 +76,22 @@ RSI_RANGES = {
 STRICT_MACD_CROSS = True
 
 # ---- Risk parameters per holding horizon ----
-# Stop Loss and Targets are now primarily SUPPORT/RESISTANCE based rather
-# than pure ATR multiples: SL looks for the nearest confirmed swing-low
-# support below entry within sr_lookback_days; Target 1/2 look for the
-# nearest two confirmed swing-high resistance levels above entry in the
-# same window. Either can fall back when no such level exists nearby:
-#   - No support found -> SL falls back to sl_atr * ATR14 below entry
-#     (the old pure-ATR method), so a stock with no clear floor still gets
-#     a sane stop instead of none at all.
-#   - No resistance found (typically because the stock is breaking out to
-#     a new high, with nothing above it to reference) -> Target 1/2 fall
-#     back to fallback_pct_low / fallback_pct_high above the entry HIGH
-#     price. Only one resistance level found (no second one for T2) ->
-#     T1 uses that level, T2 uses fallback_pct_high.
-# sr_lookback_days scales with horizon — a 30-50 day hold should reference
-# support/resistance further back than a 4-13 day one.
-# Horizon KEYS are kept as "7+"/"14+"/"30+" (unchanged labels, to avoid a
-# risky rename across every file and to keep existing ActiveTrades rows
-# readable) but their MEANING now matches your new day-range spec exactly:
-#   "7+"  = 4-13 day hold,  7-13% fallback target range
-#   "14+" = 14-29 day hold, 14-29% fallback target range
-#   "30+" = 30-60 day hold, 35%+ fallback target (only a floor was given;
-#           50% used as the upper end — a judgment call, tune freely)
 HORIZONS = {
-    "7+":  {"sl_atr": 1.5, "sr_lookback_days": 60,  "fallback_pct_low": 0.07, "fallback_pct_high": 0.13},
-    "14+": {"sl_atr": 2.0, "sr_lookback_days": 90,  "fallback_pct_low": 0.14, "fallback_pct_high": 0.29},
-    "30+": {"sl_atr": 3.0, "sr_lookback_days": 150, "fallback_pct_low": 0.35, "fallback_pct_high": 0.50},
+    "7+":  {"sl_atr": 1.5, "sr_lookback_days": 60,  "fallback_pct_low": 0.04, "fallback_pct_high": 0.08},
+    "14+": {"sl_atr": 2.0, "sr_lookback_days": 90,  "fallback_pct_low": 0.09, "fallback_pct_high": 0.12},
+    "30+": {"sl_atr": 3.0, "sr_lookback_days": 150, "fallback_pct_low": 0.13, "fallback_pct_high": 0.20},
 }
 SWING_WINDOW = 3             # bars on each side to confirm a swing high/low (see indicators.find_swing_points)
 SUPPORT_BUFFER_PCT = 0.01    # SL sits this much below the found support level, not exactly on it
-MIN_TARGET_BUFFER_PCT = 0.03 # a "resistance" level closer than this to entry_high is too close to
-                              # be a meaningful target (e.g. 1.8% above entry isn't a target, it's
-                              # noise) — discarded entirely rather than used, falling through to
-                              # fewer levels / the percentage fallback instead
+
+# Target and Stop Loss strict windows
+MIN_TARGET_BUFFER_PCT = 0.03 # Resistance must be at least 3% above entry_high to be a valid target 1
+MIN_SUPPORT_DROP_PCT = 0.03  # Support must be at least 3% below entry_low to be valid
+MAX_SUPPORT_DROP_PCT = 0.05  # Support must not be more than 5% below entry_low; otherwise triggers 1:2 RRR fallback
+
 ENTRY_BAND_PCT = 0.005       # +/- 0.5% around close for the entry range
-MIN_RRR = 1.5                # SL/Target now genuinely vary per stock (support/resistance-driven),
-                              # so this filter has real teeth again, unlike the fixed-ratio design before
-MIN_SCORE = 9                # a 9 or 10 out of 10 qualifies now (was strictly
-                              # 10 before) — ranking still caps each horizon
-                              # at TOP_N_EOD, highest score (then RRR) first
+MIN_RRR = 1.5                # Minimum Risk Reward Ratio filter
+MIN_SCORE = 9                # a 9 or 10 out of 10 qualifies now 
 
 # ---- Watchlist sizes ----
 TOP_N_EOD = 2                # per-horizon count at the single daily run
@@ -137,11 +114,6 @@ MARKET_TZ = "Asia/Dhaka"     # UTC+6, no DST
 HOLIDAY_FILE = "holidays.txt"  # one ISO date per line; DSE closures (Eid etc.)
 
 # ---- Investment (long-term SIP) watchlist ----
-# A separate, simpler system from the daily trading engine above — a fixed
-# watchlist of "fundamental" stocks you're accumulating via SIP over 5-20
-# years, checked for long-term value entry points (not swing-trade
-# signals). Add/remove tickers here freely; the script picks up changes
-# automatically next run.
 INVESTMENT_WATCHLIST = [
    "BRACBANK", "EBL", "PRIMEBANK", "CITYBANK", "SQURPHARMA", "MARICO", "BERGERPBL", "GP", "JAMUNAOIL", "BSRMLTD",
 ]
