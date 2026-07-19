@@ -24,8 +24,17 @@ def scan_universe(sheet) -> dict:
     through for risk_manager's support/resistance lookup — no separate
     fetch needed there.
     """
+    # De-duplicated, order preserved — a stock accidentally listed twice in
+    # TRADING_WATCHLIST (easy to do when hand-editing a long list) would
+    # otherwise get scored twice and could occupy multiple ranking slots
+    # with itself, silently squeezing out a genuinely different qualifier.
+    watchlist = list(dict.fromkeys(TRADING_WATCHLIST))
+    if len(watchlist) != len(TRADING_WATCHLIST):
+        dupes = [t for t in set(TRADING_WATCHLIST) if TRADING_WATCHLIST.count(t) > 1]
+        print(f"  [note] TRADING_WATCHLIST had duplicate(s), scanned once each: {dupes}")
+
     results = {h: [] for h in HORIZONS}
-    for ticker in TRADING_WATCHLIST:
+    for ticker in watchlist:
         try:
             hist = get_historical_data(sheet, ticker)
         except Exception as e:
