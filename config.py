@@ -7,7 +7,7 @@ Edit values here to tune behavior — nothing else should need touching.
 # whole A/B category — a deliberate narrowing per your explicit request.
 # Add/remove tickers freely.
 TRADING_WATCHLIST = [
-    "PUBALIBANK", "UTTARABANK", "TRUSTBANK", "DHAKABANK", "SOUTHEASTB", "BATBC", "UPGDCL", "MPETROLEUM", "PADMAOIL", "SUMITPOWER", "DUTCHBANGL", "JAMUNABANK", "MTB", "SHAHJABANK", "UNIQUEHRL", "DOREENPWR", "IDLC", "ACMELAB", "ENVOYTEX", "SQUARETEXT", "CONFIDCEM", "DBH", "MALEKSPIN", "MATINSPINN", "SAIHAMTEX", "SAIHAMCOT", "BSRMSTEEL", "UPGDCL", "INDEXAGRO", "WALTONHIL", "APEXFOOT", "ESQUIRENIT", "BXPHARMA", "ARGONDENIM", "GREENDELT", "BSC", "LHB", "PREMIERCEM", "HWAWELLTEX", "MHSML", "SIMTEX", "EHL", "BANKASIA", "ROBI", "NCCBANK",
+"PUBALIBANK", "UTTARABANK", "TRUSTBANK", "DHAKABANK", "SOUTHEASTB", "BATBC", "UPGDCL", "MPETROLEUM", "PADMAOIL", "SUMITPOWER", "DUTCHBANGL", "JAMUNABANK", "MTB", "SHAHJABANK", "UNIQUEHRL", "DOREENPWR", "IDLC", "ACMELAB", "ENVOYTEX", "SQUARETEXT", "CONFIDCEM", "DBH", "MALEKSPIN", "MATINSPINN", "SAIHAMTEX", "SAIHAMCOT", "BSRMSTEEL", "UPGDCL", "INDEXAGRO", "WALTONHIL", "APEXFOOT", "ESQUIRENIT", "BXPHARMA", "ARGONDENIM", "GREENDELT", "BSC", "LHB", "PREMIERCEM", "HWAWELLTEX", "MHSML", "SIMTEX", "EHL", "BANKASIA", "ROBI", "NCCBANK",
 ]
 
 # ---- Universe filters (kept for reference / other scripts, but the
@@ -94,16 +94,21 @@ STRICT_MACD_CROSS = True
 # Horizon KEYS are kept as "7+"/"14+"/"30+" (unchanged labels, to avoid a
 # risky rename across every file and to keep existing ActiveTrades rows
 # readable) but their MEANING now matches your new day-range spec exactly:
-#   "7+"  = 4-13 day hold,  3-6% fallback target range
-#   "14+" = 14-29 day hold, 7-10% fallback target range
-#   "30+" = 30-60 day hold, 11-15% fallback target range
+#   "7+"  = 4-13 day hold,  7-13% fallback target range
+#   "14+" = 14-29 day hold, 14-29% fallback target range
+#   "30+" = 30-60 day hold, 35%+ fallback target (only a floor was given;
+#           50% used as the upper end — a judgment call, tune freely)
 HORIZONS = {
-    "7+":  {"sl_atr": 1.5, "sr_lookback_days": 60,  "fallback_pct_low": 0.03, "fallback_pct_high": 0.06},
-    "14+": {"sl_atr": 2.0, "sr_lookback_days": 90,  "fallback_pct_low": 0.07, "fallback_pct_high": 0.10},
-    "30+": {"sl_atr": 3.0, "sr_lookback_days": 150, "fallback_pct_low": 0.11, "fallback_pct_high": 0.15},
+    "7+":  {"sl_atr": 1.5, "sr_lookback_days": 60,  "fallback_pct_low": 0.07, "fallback_pct_high": 0.13},
+    "14+": {"sl_atr": 2.0, "sr_lookback_days": 90,  "fallback_pct_low": 0.14, "fallback_pct_high": 0.29},
+    "30+": {"sl_atr": 3.0, "sr_lookback_days": 150, "fallback_pct_low": 0.35, "fallback_pct_high": 0.50},
 }
 SWING_WINDOW = 3             # bars on each side to confirm a swing high/low (see indicators.find_swing_points)
 SUPPORT_BUFFER_PCT = 0.01    # SL sits this much below the found support level, not exactly on it
+MIN_TARGET_BUFFER_PCT = 0.03 # a "resistance" level closer than this to entry_high is too close to
+                              # be a meaningful target (e.g. 1.8% above entry isn't a target, it's
+                              # noise) — discarded entirely rather than used, falling through to
+                              # fewer levels / the percentage fallback instead
 ENTRY_BAND_PCT = 0.005       # +/- 0.5% around close for the entry range
 MIN_RRR = 1.5                # SL/Target now genuinely vary per stock (support/resistance-driven),
                               # so this filter has real teeth again, unlike the fixed-ratio design before
@@ -138,7 +143,7 @@ HOLIDAY_FILE = "holidays.txt"  # one ISO date per line; DSE closures (Eid etc.)
 # signals). Add/remove tickers here freely; the script picks up changes
 # automatically next run.
 INVESTMENT_WATCHLIST = [
-    "BRACBANK", "EBL", "PRIMEBANK", "CITYBANK", "SQURPHARMA", "MARICO", "BERGERPBL", "GP", "JAMUNAOIL", "BSRMLTD",
+   "BRACBANK", "EBL", "PRIMEBANK", "CITYBANK", "SQURPHARMA", "MARICO", "BERGERPBL", "GP", "JAMUNAOIL", "BSRMLTD",
 ]
 INVESTMENT_RSI_PERIOD = 14          # standard RSI period — distinct from the
                                      # trading engine's horizon-tuned periods above,
