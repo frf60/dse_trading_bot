@@ -20,6 +20,7 @@ See config.py's HORIZONS comment for the exact per-horizon numbers.
 from indicators import nearest_support, resistance_levels
 from config import (
     HORIZONS, ENTRY_BAND_PCT, MIN_RRR, MIN_SCORE, SWING_WINDOW, SUPPORT_BUFFER_PCT,
+    MIN_TARGET_BUFFER_PCT,
 )
 
 RRR_TARGET = "target_2"  # which target the RRR viability check is measured against
@@ -47,11 +48,14 @@ def build_setup(ticker: str, hist, atr14: float, score: float, horizon: str) -> 
     else:
         sl = round(support, 2)
 
-    raw_resistances = resistance_levels(hist, close, lookback, window=SWING_WINDOW)
-    
-    # FIX: Filter out any resistance levels that are lower than or equal to our entry_high.
-    # This prevents Target 1 from overlapping with the top of our buying zone.
-    resistances = [r for r in raw_resistances if r > entry_high]
+    resistances = resistance_levels(hist, close, lookback, window=SWING_WINDOW)
+    min_meaningful_target = entry_high * (1 + MIN_TARGET_BUFFER_PCT)
+    # A "resistance" closer than MIN_TARGET_BUFFER_PCT to entry isn't a
+    # usable target — it's noise close enough to entry that you'd be
+    # stopped in and "hit" almost immediately. Discard it entirely rather
+    # than repositioning it, so the level-count logic below (2 found / 1
+    # found / none found) still does the right thing with what's left.
+    resistances = [r for r in resistances if r >= min_meaningful_target]
 
     fallback_t1 = entry_high * (1 + p["fallback_pct_low"])
     fallback_t2 = entry_high * (1 + p["fallback_pct_high"])
@@ -106,9 +110,13 @@ def build_setup(ticker: str, hist, atr14: float, score: float, horizon: str) -> 
         "sl_source": sl_source,
         "target_source": target_source,
     }
-    
-    # FIX: Ensure validity check mandates t1 > entry_high instead of entry_mid
-    setup["valid"] = risk > 0 and t2 > t1 > entry_high and rrr >= MIN_RRR and score >= MIN_SCORE
+    setup["valid"] = (
+        risk > 0
+        and t2 > t1 > entry_mid
+        and t1 >= min_meaningful_target  # belt-and-suspenders: guarantee even if a future code path forgets the upstream filter
+        and rrr >= MIN_RRR
+        and score >= MIN_SCORE
+    )
     return setup
 
 
