@@ -17,6 +17,33 @@ with the previous day's DSE prices.
 
 ## Why data entry is semi-manual, not fully automated
 
+# DSE Algorithmic Watchlist Engine (v2)
+
+This is the updated v2 algorithmic trading bot for the Dhaka Stock Exchange. 
+It operates on a fully refactored logical framework.
+
+### Major Changes in v2:
+1. **Single Composite Score (/20)**: Replaces the per-horizon scoring. 
+   - RSI (9), MACD (3), Volume (3), MA (3), SL Quality (1), Target Quality (1).
+2. **Independent Target Tracking**: One entry creates 3 Independent Targets (T1 1.0R, T2 1.5R, T3 2.0R). 
+   - A hit on T1 does not close T2/T3. 
+   - Hitting the Stop-Loss closes all remaining active targets.
+3. **Stop-Loss System**: Uses dynamic Support-based SL. If none is found, defaults to a fixed 6% below entry high.
+4. **Investment Watchlist Check**: An OR-based evaluation (Matches if RSI is 31-45, OR price is near all-time low, OR below MA).
+
+### File Structure (Updated Files):
+- `config.py`: Core logic values and score tables.
+- `indicators.py` & `scoring.py`: Indicators calculations & technical score out of 18.
+- `risk_manager.py`: Setup generator adding bonus points & target definitions.
+- `state_manager.py`: Live trade tracking and lifecycle management.
+- `scan.py` & `run_eod.py`: EOD execution loops.
+- `scripts/investment_check.py`: Independent fundamental sip check.
+- `scripts/backtest.py` & `scripts/inspect_ticker.py`: Testing scripts.
+
+### Installation
+Extract the zip file contents directly into your root directory, replacing all conflicting files.
+
+
 dsebd.org's robots.txt disallows automated access to DSE's own price
 pages — confirmed by fetching them directly while building this. Rather
 than scrape against the site's stated policy, this project treats a human
