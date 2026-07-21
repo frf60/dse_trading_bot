@@ -1,149 +1,92 @@
 """
-Walk-forward backtest: replays the scoring engine day by day over the real
-history already in RawDailyPrices, using ONLY data available up to each
-simulated "decision day" (no look-ahead — support/resistance detection
-inherently can't see beyond that day either, see indicators.find_swing_points),
-then checks what actually happened afterward — did that day's signal (if
-any, i.e. score >= MIN_SCORE) go on to hit Target 1, Target 2, Stop Loss,
-or neither?
-
-Deliberately mirrors run_eod.py's real logic exactly: same
-config.TRADING_WATCHLIST, same score_row/build_setup calls with the same
-signatures — so results here should be representative of what the live
-engine would actually have done, not a different simulation.
-
-Run: python scripts/backtest.py [--lookforward-mult 3]
-Needs GOOGLE_SERVICE_ACCOUNT_JSON set (same as scripts/backfill_from_csv.py)
-— reads RawDailyPrices directly, no separate data source.
-
-Known limitation with your current data: 30+ needs up to
-HORIZON_DAYS["30+"] * lookforward_mult = 90 days of price data AFTER a
-signal to fully resolve it. With ~90-100 days of total history right now,
-very few (maybe zero) 30+ signals will have enough room to resolve within
-this window — most will show as UNRESOLVED, not because the setup is bad,
-but because there isn't enough forward data yet. Re-run this periodically
-as more daily pastes accumulate; 7+ and 14+ are far less affected.
-
-Assumption worth knowing: simulate_outcome() checks each future day's
-High/Low against SL/T1/T2. If a single day's range covers both the stop
-and a target, SL is treated as hit first — a conservative assumption,
-since daily bars alone can't tell you the actual intraday order.
+Barebones backtester over local CSV data.
+Updated for v2 (single composite score, T1/T2/T3 independent tracking).
 """
-import sys
-from collections import defaultdict
 import pandas as pd
+import sys
+import os
 
-from config import MIN_BARS_REQUIRED, HORIZONS, INDICATOR_PARAMS, MIN_SCORE, TRADING_WATCHLIST
-from sheets_manager import open_sheet, read_records
-from sheet_data_source import RAW_HEADER
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from indicators import compute_all
-from scoring import score_row
+from scoring import score_stock
 from risk_manager import build_setup
+from config import MIN_BARS_REQUIRED, MIN_SCORE
 
-HORIZON_DAYS = {"7+": 13, "14+": 29, "30+": 60}  # upper end of each tier's day range
-DEFAULT_LOOKFORWARD_MULT = 3
+def run_backtest(csv_path="data/amarstock_prices_2026-07-12.csv", target_ticker="PUBALIBANK"):
+    if not os.path.exists(csv_path):
+        print(f"Cannot find data file at {csv_path}")
+        return
 
+    df = pd.read_csv(csv_path)
+    
+    # Filter and format standard Amarstock CSV columns
+    df = df[df["TradingCode"] == target_ticker].sort_values("Date").reset_index(drop=True)
+    df.columns = [c.lower() for c in df.columns]
 
-def load_all_history(sheet) -> dict:
-    """{ticker: DataFrame(high,low,close,volume indexed by date)} — whole ledger, one read."""
-    records = read_records(sheet, "raw_prices", RAW_HEADER)
-    df = pd.DataFrame(records, columns=RAW_HEADER)
-    if df.empty:
-        return {}
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    for col in ("high", "low", "close", "volume"):
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    df = df.dropna(subset=["date", "ticker"]).sort_values("date")
+    if len(df) < MIN_BARS_REQUIRED:
+        print(f"Not enough data for {target_ticker}.")
+        return
 
-    by_ticker = {}
-    for ticker, g in df.groupby("ticker"):
-        g = g.dropna(subset=["high", "low", "close", "volume"]).set_index("date")
-        if len(g) > 0:
-            by_ticker[ticker] = g[["high", "low", "close", "volume"]]
-    return by_ticker
+    active_trade = None
+    trades_log = []
 
+    print(f"Running simulation for {target_ticker}...")
 
-def simulate_outcome(future: pd.DataFrame, sl: float, t1: float, t2: float) -> dict:
-    for i, (_, row) in enumerate(future.iterrows(), start=1):
-        if row["low"] <= sl:
-            return {"outcome": "SL", "days": i}
-        if row["high"] >= t2:
-            return {"outcome": "T2", "days": i}
-        if row["high"] >= t1:
-            return {"outcome": "T1_ONLY", "days": i}
-    return {"outcome": "UNRESOLVED", "days": len(future)}
+    # Iterate through history simulating daily EOD reads
+    for i in range(MIN_BARS_REQUIRED, len(df)):
+        hist_slice = df.iloc[:i].copy()
+        live_today = df.iloc[i] 
 
+        if active_trade:
+            # Active Position Evaluation (Mimicking state_manager.py)
+            sl = active_trade["stop_loss"]
+            live_low = live_today["low"]
+            live_high = live_today["high"]
 
-def backtest(lookforward_mult: int = DEFAULT_LOOKFORWARD_MULT):
-    sheet = open_sheet()
-    print("Loading full price ledger...")
-    history = load_all_history(sheet)
-    print(f"Loaded history for {len(history)} tickers.")
+            # 1. Stop Loss Evaluation (Hits all ACTIVE targets)
+            if live_low <= sl:
+                for k in ["target_1", "target_2", "target_3"]:
+                    if active_trade[f"{k}_status"] == "ACTIVE":
+                        active_trade[f"{k}_status"] = "SL_HIT"
+                active_trade["status"] = "CLOSED"
+                trades_log.append(active_trade)
+                active_trade = None
+                continue
 
-    tickers = [t for t in TRADING_WATCHLIST if t in history]
-    missing = [t for t in TRADING_WATCHLIST if t not in history]
-    print(f"{len(tickers)} of {len(TRADING_WATCHLIST)} TRADING_WATCHLIST tickers have price history.")
-    if missing:
-        print(f"No data yet for: {missing}")
+            # 2. Independent Target Evaluation
+            for k in ["target_1", "target_2", "target_3"]:
+                if active_trade[f"{k}_status"] == "ACTIVE" and live_high >= active_trade[k]:
+                    active_trade[f"{k}_status"] = "TARGET_HIT"
 
-    results = {h: defaultdict(int) for h in HORIZONS}
-    resolution_days = {h: [] for h in HORIZONS}
+            # 3. Check if all targets are resolved
+            if all(active_trade[f"{k}_status"] != "ACTIVE" for k in ["target_1", "target_2", "target_3"]):
+                active_trade["status"] = "CLOSED"
+                trades_log.append(active_trade)
+                active_trade = None
+        else:
+            # Look for a new setup
+            enriched = compute_all(hist_slice)
+            try:
+                tech_score = score_stock(enriched)
+                setup = build_setup(target_ticker, hist_slice, tech_score)
+                
+                if setup["valid"] and setup["score"] >= MIN_SCORE:
+                    active_trade = setup
+                    active_trade["entry_date"] = live_today["date"]
+                    for k in ["target_1", "target_2", "target_3"]:
+                        active_trade[f"{k}_status"] = "ACTIVE"
+                    active_trade["status"] = "ACTIVE"
+            except Exception:
+                pass
 
-    for ticker in tickers:
-        hist = history[ticker]
-        n = len(hist)
-        for horizon in HORIZONS:
-            min_bars = MIN_BARS_REQUIRED[horizon]
-            lookforward = HORIZON_DAYS[horizon] * lookforward_mult
-            for i in range(min_bars, n - 1):
-                window = hist.iloc[: i + 1]  # only data up to and including day i — no look-ahead
-                if len(window) < min_bars:
-                    continue
-                try:
-                    enriched = compute_all(window, INDICATOR_PARAMS[horizon])
-                    curr, prev = enriched.iloc[-1], enriched.iloc[-2]
-                    score = score_row(curr, prev, horizon)["total"]
-                except Exception:
-                    continue
-                if score < MIN_SCORE:
-                    continue
-
-                try:
-                    setup = build_setup(ticker, window, float(curr["atr14"]), score, horizon)
-                except Exception:
-                    continue
-                if not setup["valid"]:
-                    continue
-
-                future = hist.iloc[i + 1: i + 1 + lookforward]
-                if future.empty:
-                    continue
-                outcome = simulate_outcome(future, setup["stop_loss"], setup["target_1"], setup["target_2"])
-                results[horizon][outcome["outcome"]] += 1
-                resolution_days[horizon].append(outcome["days"])
-
-    print("\n=== Backtest results (walk-forward, no look-ahead) ===")
-    for horizon in HORIZONS:
-        r = results[horizon]
-        total = sum(r.values())
-        if total == 0:
-            print(f"\n{horizon}: no signals generated in this history window "
-                  f"(needs score >= {MIN_SCORE}/10 to fire at all).")
-            continue
-        wins = r["T1_ONLY"] + r["T2"]
-        win_rate = 100 * wins / total
-        avg_days = sum(resolution_days[horizon]) / len(resolution_days[horizon])
-        print(f"\n{horizon}: {total} signal(s) generated")
-        print(f"  Hit Target 2 (full target):     {r['T2']} ({100*r['T2']/total:.1f}%)")
-        print(f"  Hit Target 1 only:               {r['T1_ONLY']} ({100*r['T1_ONLY']/total:.1f}%)")
-        print(f"  Hit Stop Loss:                    {r['SL']} ({100*r['SL']/total:.1f}%)")
-        print(f"  Unresolved (ran out of window):  {r['UNRESOLVED']} ({100*r['UNRESOLVED']/total:.1f}%)")
-        print(f"  Win rate (T1 or T2 before SL):   {win_rate:.1f}%")
-        print(f"  Average days to resolution:       {avg_days:.1f}")
-
+    print(f"\nBacktest complete for {target_ticker}. Total fully resolved trades: {len(trades_log)}")
+    print("-" * 75)
+    for t in trades_log:
+        print(f"Entry: {t['entry_date']} | SL: {t['sl_source']} | T1: {t['target_1_status']} | T2: {t['target_2_status']} | T3: {t['target_3_status']}")
+    print("-" * 75)
 
 if __name__ == "__main__":
-    mult = DEFAULT_LOOKFORWARD_MULT
-    if "--lookforward-mult" in sys.argv:
-        mult = int(sys.argv[sys.argv.index("--lookforward-mult") + 1])
-    backtest(mult)
+    # Feel free to change target_ticker via arguments if needed
+    ticker = sys.argv[1] if len(sys.argv) > 1 else "PUBALIBANK"
+    run_backtest(target_ticker=ticker)
