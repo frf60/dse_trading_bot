@@ -107,5 +107,5 @@ def main():
           f"{len(hold_rows)} hold(s), {len(sell_rows)} sell(s).")
 
 
-if _name_ == "_main_":
+if _name_ == "__main__":
     main()
