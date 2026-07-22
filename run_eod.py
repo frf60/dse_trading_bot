@@ -1,19 +1,24 @@
 """
 Single daily run — after market close.
 Ingests today's pasted price data (RawStaging -> RawDailyPrices) -> scores
-config.TRADING_WATCHLIST (a fixed, explicit list) with ONE composite /20
-score per stock (RSI 9 + MACD 3 + Volume 3 + MA 3 + SL-quality 1 +
-Target-quality 1 — see scoring.py / risk_manager.py) -> builds today's
-top-N list (config.TOP_N_DAILY) from stocks scoring >= MIN_SCORE, each
-with ONE entry, ONE stop-loss (support-based or the flat 6% fallback),
-and THREE independent RRR targets (T1 1.0R / T2 1.5R / T3 2.0R) off that
-entry, excluding tickers that already have an open ACTIVE position ->
-evaluates yesterday's ACTIVE trades' T1/T2/T3 independently against
-today's live price for Hold/Sell -> appends today's fresh Buy list.
+config.TRADING_WATCHLIST (a fixed, explicit list) with ONE composite /25
+score per stock (RSI 9 + MACD 3 + Volume 3 + MA 3 + DSEX relative-strength
+1 + Low-proximity 4 + SL-quality 1 + Target-quality 1 — see scoring.py /
+risk_manager.py) -> builds today's top-N list (config.TOP_N_DAILY) from
+stocks scoring >= MIN_SCORE, each with ONE entry, ONE stop-loss
+(support-based or the flat 6% fallback), and THREE independent RRR
+targets (T1 1.0R / T2 1.5R / T3 2.0R) off that entry, excluding tickers
+that already have an open ACTIVE position -> evaluates yesterday's
+ACTIVE trades' T1/T2/T3 independently against today's live price for
+Hold/Sell -> appends today's fresh Buy list.
 
-v2 (this revision): no more per-horizon loop — one scan, one ranked list,
-one Buy tab write. "Horizon" survives only as a display label attached to
-each target (see config.TARGET_HORIZON_LABEL), not as a scoring axis.
+v2: no more per-horizon loop — one scan, one ranked list, one Buy tab
+write. "Horizon" survives only as a display label attached to each
+target (see config.TARGET_HORIZON_LABEL), not as a scoring axis.
+
+v3: score widened from /20 to /25 (added DSEX relative-strength + Low-
+proximity criteria) — MIN_SCORE/SCORE_MAX come from config, nothing here
+is hardcoded to the old /20 scale anymore.
 
 Investment (long-term SIP) watchlist checks run as a SEPARATE script
 (scripts/investment_check.py), as an additional GitHub Actions step right
@@ -91,7 +96,7 @@ def main():
 
     for s in buy_setups:
         print(f"  BUY: {s['ticker']} — score {s['score']}/{SCORE_MAX} "
-              f"(technical {s['technical_total']}/18 + SL {s['sl_quality']} "
+              f"(technical {s['technical_total']}/{SCORE_MAX - 2} + SL {s['sl_quality']} "
               f"+ Target {s['target_quality']}), SL via {s['sl_source']} "
               f"({s['stop_loss']}), targets via {s['target_source']} "
               f"(T1={s['target_1']} T2={s['target_2']} T3={s['target_3']}).")
@@ -102,5 +107,5 @@ def main():
           f"{len(hold_rows)} hold(s), {len(sell_rows)} sell(s).")
 
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
