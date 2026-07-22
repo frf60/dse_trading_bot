@@ -96,7 +96,7 @@ MA_MAX_SCORE = 3
 #       Anything else (stock down) -> 0.
 # If DSEX has no/insufficient data on a given day, the point defaults to
 # 0 for every stock that day rather than failing the scan (see scan.py).
-INDEX_TICKER = "DSEX"
+INDEX_TICKER = "00DSEX"
 DSEX_RELATIVE_STRENGTH_POINT = 1
 DSEX_MAX_SCORE = 1
 
