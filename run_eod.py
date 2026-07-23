@@ -7,8 +7,8 @@ score per stock (RSI 9 + MACD 3 + Volume 3 + MA 3 + DSEX relative-strength
 risk_manager.py) -> builds today's top-N list (config.TOP_N_DAILY) from
 stocks scoring >= MIN_SCORE, each with ONE entry, ONE stop-loss
 (support-based or the flat 6% fallback), and THREE independent RRR
-targets (T1 1.0R / T2 1.5R / T3 2.0R) off that entry, excluding tickers
-that already have an open ACTIVE position -> evaluates yesterday's
+targets (T1 1.0R / T2 1.5R / T3 2.0R) off that entry, allowing tickers
+that already have an open ACTIVE position to be re-picked -> evaluates yesterday's
 ACTIVE trades' T1/T2/T3 independently against today's live price for
 Hold/Sell -> appends today's fresh Buy list.
 
@@ -65,13 +65,11 @@ def main():
     overwrite_tab(sheet, "hold", VIEW_HEADER, hold_rows)
     overwrite_tab(sheet, "sell", VIEW_HEADER, sell_rows)
 
-    # Read AFTER apply_status_updates, so a stock that fully closed today
-    # (its last open target hit, or stopped out) is no longer considered
-    # "active" and is free to be picked again if it still qualifies — only
-    # genuinely still-open positions get excluded from today's fresh picks.
+    # Note: We still fetch this for logging purposes, but we no longer use it
+    # to exclude stocks. They are free to be picked again if they qualify.
     active_tickers = get_active_tickers(sheet)
     print(f"[{run_date}] {len(active_tickers)} ticker(s) already have an "
-          f"open ACTIVE position — excluded from today's new picks.")
+          f"open ACTIVE position (no longer excluded, can be picked again).")
 
     # 2. Scan config.TRADING_WATCHLIST — one composite score per stock.
     print(f"[{run_date}] Scanning TRADING_WATCHLIST...")
@@ -79,15 +77,16 @@ def main():
     print(f"  {len(scan_results)} ticker(s) had enough history "
           f"(>= {MIN_BARS_REQUIRED} bars) and scored successfully.")
 
-    all_setups = build_setups(scan_results, exclude=active_tickers)
+    # Modified: removed 'exclude=active_tickers' to allow duplicate buys on new dates
+    all_setups = build_setups(scan_results)
     qualifying = [s for s in all_setups if s["valid"]]
+    
     if all_setups:
         best = max(s["score"] for s in all_setups)
         print(f"  {len(qualifying)} of {len(all_setups)} eligible ticker(s) "
               f"scored >= {MIN_SCORE}/{SCORE_MAX}, best seen = {best}/{SCORE_MAX}.")
     else:
-        print("  0 tickers eligible to score today (either already-active, "
-              "or none had enough history).")
+        print("  0 tickers eligible to score today (none had enough history).")
 
     # 3. Rank across the WHOLE list (no horizon split) and take the top N.
     buy_setups = rank_and_filter(all_setups, TOP_N_DAILY)
