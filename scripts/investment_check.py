@@ -35,6 +35,15 @@ Needs GOOGLE_SERVICE_ACCOUNT_JSON (reads/writes the Sheet, same as the
 rest of the project) — nothing else. No Telegram, no external service.
 """
 from datetime import date
+import sys
+import os
+
+# scripts/ is a subdirectory — without this, `python scripts/investment_check.py`
+# only has scripts/ itself on sys.path, not the repo root where config.py etc.
+# live, and every import below fails with ModuleNotFoundError. run_eod.py never
+# needed this since it already lives at the repo root; inspect_ticker.py (also
+# in scripts/) already has this exact line, which is how it avoided the same bug.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import (
     INVESTMENT_WATCHLIST, INVESTMENT_RSI_PERIOD,
