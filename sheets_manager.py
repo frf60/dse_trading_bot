@@ -1,17 +1,3 @@
-"""
-Thin wrapper around gspread. All Sheets I/O goes through here so the rest
-of the pipeline never touches the API directly.
-
-One-time setup:
-  1. Google Cloud Console -> new project -> enable "Google Sheets API".
-  2. Create a Service Account -> Keys -> Add key -> JSON. Download it.
-  3. Open the JSON, copy the "client_email" value, and share your target
-     Google Sheet with that email as Editor.
-  4. In GitHub: repo Settings -> Secrets and variables -> Actions ->
-     New repository secret, named GOOGLE_SERVICE_ACCOUNT_JSON, value =
-     the full contents of the JSON key file.
-  5. Put the Sheet's ID (from its URL) into config.SPREADSHEET_ID.
-"""
 import os
 import json
 import gspread
@@ -45,7 +31,6 @@ def open_sheet():
 
 
 def get_tab(sheet, tab_key: str, header: list):
-    """Fetch a worksheet by its config key, creating it with a header row if it doesn't exist."""
     title = TABS[tab_key]
     try:
         ws = sheet.worksheet(title)
@@ -56,17 +41,6 @@ def get_tab(sheet, tab_key: str, header: list):
 
 
 def read_records(sheet, tab_key: str, header: list) -> list:
-    """
-    Deliberately NOT using gspread's get_all_records() — that trusts
-    whatever text is literally in the sheet's row 1 as the dict keys. If a
-    tab'header row ever ends up out of sync with this project's own
-    `header` list (e.g. created before a column-naming change, or hand-
-    edited), get_all_records() silently returns dicts keyed by the wrong
-    names and every r["ticker"]-style lookup downstream breaks with a
-    KeyError. Reading positionally and re-zipping against `header` here
-    makes every caller correct regardless of what row 1 actually says —
-    row 1 is only ever treated as "the row to skip", not as data.
-    """
     ws = get_tab(sheet, tab_key, header)
     values = ws.get_all_values()
     if len(values) < 2:
@@ -80,12 +54,10 @@ def read_records(sheet, tab_key: str, header: list) -> list:
 
 
 def overwrite_tab(sheet, tab_key: str, header: list, rows: list):
-    """Clears a tab and rewrites it — used for the Buy/Hold/Sell snapshot views each run."""
     ws = get_tab(sheet, tab_key, header)
     ws.clear()
     ws.append_row(header)
     if rows:
-        # RAW, not USER_ENTERED: date strings must be stored literally.
         ws.append_rows(rows, value_input_option="RAW")
 
 
@@ -96,10 +68,6 @@ def append_rows(sheet, tab_key: str, header: list, rows: list):
 
 
 def append_rows_with_retry(sheet, tab_key: str, header: list, rows: list, max_retries: int = 5):
-    """
-    Same as append_rows, but retries with exponential backoff on 429s.
-    Needed for large backfills where back-to-back write calls trip Sheets API limits.
-    """
     import time
     for attempt in range(max_retries):
         try:
@@ -108,7 +76,7 @@ def append_rows_with_retry(sheet, tab_key: str, header: list, rows: list, max_re
         except gspread.exceptions.APIError as e:
             is_rate_limit = "429" in str(e) or "Quota exceeded" in str(e)
             if is_rate_limit and attempt < max_retries - 1:
-                wait = 2 ** attempt  # 1, 2, 4, 8, 16 seconds
+                wait = 2 ** attempt
                 print(f"  Rate limited, waiting {wait}s before retry {attempt + 2}/{max_retries}...")
                 time.sleep(wait)
             else:
