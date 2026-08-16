@@ -6,8 +6,13 @@ ATR14 have enough bars to be meaningful (MIN_BARS_REQUIRED in config.py).
 Run once: python scripts/backfill_from_csv.py path/to/history.csv
 
 Expected CSV columns (case-insensitive, order doesn't matter):
-    date, ticker, high, low, close, volume
-(no "open" needed — see sheet_data_source.py docstring for why)
+    date, ticker, open, high, low, close, volume
+("open" IS required -- Branch B of the combined regime model screens on
+a green candle (close > open), so a row missing open can't be scored for
+Branch B eligibility. sheet_data_source.RAW_HEADER now includes it too;
+writing rows without it would silently shift every column one slot over
+in the sheet -- this file used to skip open, which was a real bug, fixed
+here.)
 
 Where to get such a CSV: candidate public datasets exist (e.g. searches
 turn up a Mendeley Data DSE end-of-day dataset and Kaggle DSE historical
@@ -38,12 +43,13 @@ def main(csv_path: str):
     df = pd.read_csv(csv_path)
     col_ticker = _match(df.columns, "ticker", "trading code", "scrip", "symbol", "code")
     col_date = _match(df.columns, "date")
+    col_open = _match(df.columns, "openp", "open")
     col_high = _match(df.columns, "high")
     col_low = _match(df.columns, "low")
     col_close = _match(df.columns, "close", "ltp")
     col_volume = _match(df.columns, "volume", "vol")
 
-    missing = [n for n, c in [("ticker", col_ticker), ("date", col_date),
+    missing = [n for n, c in [("ticker", col_ticker), ("date", col_date), ("open", col_open),
                                ("high", col_high), ("low", col_low),
                                ("close", col_close), ("volume", col_volume)] if c is None]
     if missing:
@@ -51,7 +57,7 @@ def main(csv_path: str):
                           f"Found columns: {list(df.columns)}")
 
     df = df.rename(columns={
-        col_ticker: "ticker", col_date: "date", col_high: "high",
+        col_ticker: "ticker", col_date: "date", col_open: "open", col_high: "high",
         col_low: "low", col_close: "close", col_volume: "volume",
     })
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
@@ -69,7 +75,7 @@ def main(csv_path: str):
         key = (row["date"], str(row["ticker"]))
         if key in existing_keys:
             continue
-        new_rows.append([row["date"], row["ticker"], row["high"], row["low"],
+        new_rows.append([row["date"], row["ticker"], row["open"], row["high"], row["low"],
                           row["close"], row["volume"]])
 
     print(f"{len(new_rows)} new rows to append ({len(df) - len(new_rows)} already present).")
