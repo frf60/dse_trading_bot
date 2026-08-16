@@ -87,23 +87,25 @@ def build_category_csv(df: pd.DataFrame, out_path: str = CATEGORY_OUT):
 
 def build_price_rows(df: pd.DataFrame, run_date: str) -> pd.DataFrame:
     col_ticker = _match(df.columns, "trading code", "scrip", "symbol", "code")
+    col_open = _match(df.columns, "openp", "open")
     col_high = _match(df.columns, "high")
     col_low = _match(df.columns, "low")
     col_close = _match(df.columns, "closep", "close", "ltp")
     col_volume = _match(df.columns, "volume", "vol")
 
-    missing = [n for n, c in [("ticker", col_ticker), ("high", col_high), ("low", col_low),
-                               ("close", col_close), ("volume", col_volume)] if c is None]
+    missing = [n for n, c in [("ticker", col_ticker), ("open", col_open), ("high", col_high),
+                               ("low", col_low), ("close", col_close), ("volume", col_volume)] if c is None]
     if missing:
         raise RuntimeError(f"Couldn't find columns for {missing}. Found: {list(df.columns)}")
 
     numeric = df.copy()
-    for col in (col_high, col_low, col_close, col_volume):
+    for col in (col_open, col_high, col_low, col_close, col_volume):
         numeric[col] = pd.to_numeric(numeric[col], errors="coerce")
-    numeric = numeric.dropna(subset=[col_high, col_low, col_close, col_volume])
+    numeric = numeric.dropna(subset=[col_open, col_high, col_low, col_close, col_volume])
     return pd.DataFrame({
         "date": run_date,
         "ticker": numeric[col_ticker].astype(str).str.strip(),
+        "open": numeric[col_open],
         "high": numeric[col_high],
         "low": numeric[col_low],
         "close": numeric[col_close],
