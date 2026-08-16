@@ -53,6 +53,7 @@ def _match_columns(header: list) -> dict:
         return None
 
     idx = {
+        "date": find("date"),
         "ticker": find("trading code", "trading_code", "scrip", "symbol", "code"),
         "open": find("openp", "open"),
         "high": find("high"),
@@ -78,11 +79,37 @@ def _clean_number(raw) -> float:
     return float(s)
 
 
-def parse_staging_rows(values: list, run_date: str) -> tuple:
+def _clean_date(raw) -> str:
+    """
+    Normalizes a pasted date cell to 'YYYY-MM-DD', accepting whatever
+    reasonable format DSE's daily table (or a spreadsheet's own date
+    rendering) hands back -- '15-Aug-2026', '2026-08-15', '08/15/2026',
+    a Sheets serial number, etc. Raises on anything pandas can't parse,
+    same "stop and tell you" policy as _clean_number.
+    """
+    ts = pd.to_datetime(raw, errors="coerce", dayfirst=False)
+    if pd.isna(ts):
+        raise ValueError(f"unparseable date: {raw!r}")
+    return ts.strftime("%Y-%m-%d")
+
+
+def parse_staging_rows(values: list, run_date: str = None) -> tuple:
     """
     Pure function (no Sheets I/O) so it's unit-testable: takes the raw 2D
     values from RawStaging (header row + data rows) and returns
     (clean_rows, skipped_count). clean_rows are lists matching RAW_HEADER.
+
+    Each row's OWN Date column is used -- this is a WEEKLY paste (Sun-Thu,
+    every ticker, one paste per Friday run), so the 5 trading days in a
+    single paste are genuinely different dates, not all "today". Stamping
+    every row with a single `run_date` (the old daily-model behaviour,
+    where one paste == one trading day) would collapse a whole week onto
+    one date and break every weekday-dependent check downstream (Thursday
+    regime detection, RSI/rolling windows, etc.).
+
+    `run_date` is kept as an optional parameter, used ONLY as a fallback
+    if a row's Date cell is missing/blank -- for backward compatibility
+    with any single-day paste that omits the Date column entirely.
     """
     if not values or len(values) < 2:
         return [], 0
@@ -97,12 +124,17 @@ def parse_staging_rows(values: list, run_date: str) -> tuple:
             if not ticker:
                 skipped += 1
                 continue
+            raw_date = row[idx["date"]] if idx["date"] < len(row) else ""
+            row_date = _clean_date(raw_date) if str(raw_date).strip() else run_date
+            if not row_date:
+                skipped += 1  # no date in the row and no fallback given
+                continue
             open_ = _clean_number(row[idx["open"]])
             high = _clean_number(row[idx["high"]])
             low = _clean_number(row[idx["low"]])
             close = _clean_number(row[idx["close"]])
             volume = _clean_number(row[idx["volume"]])
-            clean_rows.append([run_date, ticker, open_, high, low, close, volume])
+            clean_rows.append([row_date, ticker, open_, high, low, close, volume])
         except (ValueError, IndexError):
             skipped += 1  # header/subtotal/malformed row — skip, don't crash the run
             continue
