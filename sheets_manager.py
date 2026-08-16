@@ -22,6 +22,12 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
 def _client():
+    # local credentials.json ফাইল থাকলে সরাসরি তা ব্যবহার করবে
+    if os.path.exists("credentials.json"):
+        creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+        return gspread.authorize(creds)
+        
+    # না থাকলে এনভায়রনমেন্ট ভ্যারিয়েবল ব্যবহার করবে (যেমন: GitHub Actions-এ)
     raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not raw:
         raise RuntimeError(
