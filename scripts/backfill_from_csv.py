@@ -3,7 +3,7 @@ One-time backfill: bulk-loads historical OHLCV into RawDailyPrices from a
 local CSV, so you don't have to paste daily for ~2-3 months before EMA50/
 ATR14 have enough bars to be meaningful (MIN_BARS_REQUIRED in config.py).
 
-Run once: python scripts/backfill_from_csv.py path/to/history.csv
+Run once, from the repo root: python scripts/backfill_from_csv.py path/to/history.csv
 
 Expected CSV columns (case-insensitive, order doesn't matter):
     date, ticker, open, high, low, close, volume
@@ -23,8 +23,25 @@ produces garbage scores/ATR out, silently.
 
 Safe to re-run: de-duplicates on (date, ticker) against whatever's already
 in RawDailyPrices, same as the daily paste-import path.
+
+IMPORTANT -- run_weekly.py's regime switch (weekly_engine._is_uptrend_series)
+needs weekly_config.INDEX_SYMBOL ("00DSEX") present in RawDailyPrices with
+real historical bars, same as any other ticker. If your backfill CSV
+doesn't include a "00DSEX" row for every date, add it (as its own
+ticker="00DSEX" rows) before running this -- otherwise every weekly scan
+silently treats every week as NOT-UPTREND (Branch A only) with the
+regime check just seeing no data at all, matching combined_regime_model.py's
+"index missing" fallback rather than failing loudly.
 """
 import sys
+import os
+
+# Needed because this script lives in scripts/, not the repo root -- when
+# run as `python scripts/backfill_from_csv.py ...`, Python only puts
+# scripts/ on sys.path, not the repo root where sheets_manager.py and
+# sheet_data_source.py actually live. Same fix as scripts/inspect_ticker.py.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import time
 import pandas as pd
 from sheets_manager import open_sheet, read_records, append_rows_with_retry
@@ -65,6 +82,13 @@ def main(csv_path: str):
 
     print(f"Loaded {len(df)} rows covering {df['ticker'].nunique()} tickers "
           f"from {df['date'].min()} to {df['date'].max()}.")
+
+    if "00DSEX" not in set(df["ticker"].astype(str)):
+        print("  WARNING: no '00DSEX' rows found in this CSV. The weekly regime "
+              "switch (weekly_engine._is_uptrend_series) needs 00DSEX history in "
+              "RawDailyPrices -- without it every week will silently fall back to "
+              "NOT-UPTREND (Branch A only). Add 00DSEX rows separately if this CSV "
+              "doesn't already have them elsewhere.")
 
     sheet = open_sheet()
     existing = read_records(sheet, "raw_prices", RAW_HEADER)
