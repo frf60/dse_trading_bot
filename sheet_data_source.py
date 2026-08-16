@@ -14,6 +14,13 @@ Open is now tracked too (added for the Selective Signal engine, which
 fills entries at the next trading day's open — see selective_signal.py).
 Every indicator in indicators.py still only needs High/Low/Close/Volume;
 Open passes through the ledger unused by anything except selective_signal.
+
+get_all_history() was added for weekly_engine.py (the combined
+regime-switching weekly pipeline), which needs the WHOLE ledger as one
+DataFrame (all tickers, all dates) rather than one ticker at a time --
+it builds its own per_symbol dict and does its own date bookkeeping
+across the whole universe in one pass, so filtering to a single ticker
+here (like get_historical_data does) doesn't fit its access pattern.
 """
 from datetime import date
 import time
@@ -257,6 +264,30 @@ def get_historical_data(sheet, ticker: str, days: int = 100) -> pd.DataFrame:
         return empty
     sub = sub.sort_values("date").set_index("date")
     return sub[["open", "high", "low", "close", "volume"]]
+
+
+def get_all_history(sheet) -> pd.DataFrame:
+    """
+    Returns the ENTIRE RawDailyPrices ledger as one DataFrame — every
+    ticker, every date, columns: date, ticker, open, high, low, close,
+    volume (date is a proper datetime64 column, not the index).
+
+    Added for weekly_engine.py's load_ledger(), which needs to build a
+    per-symbol dict across the WHOLE universe (including the 00DSEX index
+    row) in a single pass rather than one get_historical_data() call per
+    ticker -- that would mean 176+ separate filters of the same in-memory
+    ledger for no benefit, and get_historical_data()'s `days` cutoff would
+    also wrongly truncate history the weekly engine needs (e.g. the 60-day
+    rolling low, 20-day turnover, and multi-week regime lookbacks all need
+    more history than a single fixed cutoff would safely guarantee).
+    Uses the same cached ledger as every other reader in this module, so
+    it stays consistent with get_historical_data()/get_live_price() and
+    costs no extra Sheets API calls beyond the first read.
+    """
+    df = _load_price_ledger(sheet)
+    if df.empty:
+        return pd.DataFrame(columns=RAW_HEADER)
+    return df[RAW_HEADER].sort_values(["ticker", "date"]).reset_index(drop=True)
 
 
 def get_live_price(sheet, ticker: str) -> float:
