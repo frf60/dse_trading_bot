@@ -22,20 +22,21 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
 def _client():
-    # local credentials.json ফাইল থাকলে সরাসরি তা ব্যবহার করবে
+    # 1. Check for local credentials.json first
     if os.path.exists("credentials.json"):
         creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
         return gspread.authorize(creds)
         
-    # না থাকলে এনভায়রনমেন্ট ভ্যারিয়েবল ব্যবহার করবে (যেমন: GitHub Actions-এ)
+    # 2. Check for the environment variable (for CI / GitHub Actions)
     raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if not raw:
-        raise RuntimeError(
-            "GOOGLE_SERVICE_ACCOUNT_JSON env var not set. Locally, export the contents "
-            "of your service-account key file into that variable; in CI, set it as a secret."
-        )
-    creds = Credentials.from_service_account_info(json.loads(raw), scopes=SCOPES)
-    return gspread.authorize(creds)
+    if raw:
+        creds = Credentials.from_service_account_info(json.loads(raw), scopes=SCOPES)
+        return gspread.authorize(creds)
+
+    # 3. Raise an error if neither exists
+    raise RuntimeError(
+        "Neither credentials.json file nor GOOGLE_SERVICE_ACCOUNT_JSON env var found."
+    )
 
 
 def open_sheet():
@@ -58,7 +59,7 @@ def read_records(sheet, tab_key: str, header: list) -> list:
     """
     Deliberately NOT using gspread's get_all_records() — that trusts
     whatever text is literally in the sheet's row 1 as the dict keys. If a
-    tab's header row ever ends up out of sync with this project's own
+    tab'header row ever ends up out of sync with this project's own
     `header` list (e.g. created before a column-naming change, or hand-
     edited), get_all_records() silently returns dicts keyed by the wrong
     names and every r["ticker"]-style lookup downstream breaks with a
@@ -84,11 +85,7 @@ def overwrite_tab(sheet, tab_key: str, header: list, rows: list):
     ws.clear()
     ws.append_row(header)
     if rows:
-        # RAW, not USER_ENTERED: our date strings ("2026-04-15") must be stored
-        # literally. USER_ENTERED lets Sheets auto-detect and reformat anything
-        # that looks like a date/number/formula according to the sheet's locale,
-        # which can silently corrupt round-tripping (write "2026-04-15", read
-        # back something pandas parses as a different or invalid date).
+        # RAW, not USER_ENTERED: date strings must be stored literally.
         ws.append_rows(rows, value_input_option="RAW")
 
 
@@ -101,9 +98,7 @@ def append_rows(sheet, tab_key: str, header: list, rows: list):
 def append_rows_with_retry(sheet, tab_key: str, header: list, rows: list, max_retries: int = 5):
     """
     Same as append_rows, but retries with exponential backoff on 429s.
-    Needed for large backfills (tens of thousands of rows, sent in chunks)
-    where enough back-to-back write calls can trip Sheets API's per-minute
-    write quota even though each individual call is legitimate.
+    Needed for large backfills where back-to-back write calls trip Sheets API limits.
     """
     import time
     for attempt in range(max_retries):
