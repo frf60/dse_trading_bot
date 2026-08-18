@@ -25,6 +25,11 @@ separate engine -- otherwise every weekly_engine call raises KeyError.
 The weekly engine shares raw_staging/raw_prices with the daily engine
 below (both read/write the same price ledger); everything else is its
 own dedicated tab so the two engines' state never collides.
+
+v5 (this revision): added preview_weekly. weekly_engine.preview_today()
+is a read-only, off-cycle (any weekday) screen snapshot -- separate from
+the Thursday-gated official signal -- and writes to its own tab, same
+registration requirement as every other *_weekly key above.
 """
 
 # ---- Trading list (technical /25 scoring + T1/T2/T3 setups) ----
@@ -244,3 +249,6 @@ TABS["active_trades_weekly"] = "ActiveTradesWeekly"  # single source of truth fo
 TABS["hold_weekly"] = "HoldWeekly"                  # view: still-ACTIVE weekly rows
 TABS["sell_weekly"] = "SellWeekly"                  # view: CLOSED weekly rows
 TABS["buy_weekly"] = "BuyWeekly"                    # view: this run's newly-filled entries
+TABS["preview_weekly"] = "PreviewWeekly"            # view: informational, off-cycle (any weekday) screen
+                                                     # snapshot from weekly_engine.preview_today() -- never
+                                                     # queues a trade, separate from the Thursday-gated signal
