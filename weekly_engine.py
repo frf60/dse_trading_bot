@@ -38,6 +38,7 @@ ACTIVE_HEADER = [
 ]
 PENDING_HEADER = ["ticker", "branch", "signal_date", "kind", "rank_metric"]  # kind: NEW or AVERAGE
 STATE_HEADER = ["last_scanned_date"]
+PREVIEW_HEADER = ["ticker", "branch", "rank_metric", "as_of_date"]
 
 
 def _rsi(series, length=14):
@@ -367,6 +368,81 @@ def scan_new_candidates(sheet, per_symbol, all_dates, last_scanned_date, active_
     if queued:
         append_rows(sheet, "pending_weekly", PENDING_HEADER, queued)
     return {"queued": len(queued), "regime_by_thursday": regime_log}
+
+
+def preview_today(sheet, per_symbol, all_dates):
+    """INFORMATIONAL ONLY -- lists every ticker currently passing the live
+    regime's branch screen as of the LATEST ingested close, whatever
+    weekday that is (unlike scan_new_candidates, which only ever fires on
+    a Thursday close, matching the backtested cadence).
+
+    This does NOT queue anything into pending_weekly and does NOT affect
+    scan_new_candidates' Thursday-only state (_get_state/_set_state) --
+    it's a read-only snapshot so you can see what's close/qualifying on
+    an off-cycle day without changing what the official Thursday signal
+    would have been. The real trade signal still only fires on Thursday,
+    since that's the cadence the backtest's 5.13% realized return was
+    measured on -- screening on other weekdays would be running an
+    untested variant of the strategy live."""
+    if wc.INDEX_SYMBOL not in per_symbol or not all_dates:
+        return {"as_of": None, "branch": None, "candidates": []}
+
+    d = all_dates[-1]
+    date_pos = {dd: i for i, dd in enumerate(all_dates)}
+    if date_pos[d] < wc.MIN_BARS_REQUIRED:
+        return {"as_of": d, "branch": None, "candidates": [],
+                "note": f"only {date_pos[d] + 1} bars in ledger, need >= {wc.MIN_BARS_REQUIRED}"}
+
+    is_uptrend = _is_uptrend_series(per_symbol)
+    up = bool(is_uptrend.get(d, False))
+    branch = "B" if up else "A"
+    candidates = []
+
+    if branch == "A":
+        feats_a, idx_ret20 = _build_features_a(per_symbol)
+        if d not in idx_ret20.index or pd.isna(idx_ret20.loc[d]):
+            return {"as_of": d, "branch": "A", "candidates": []}
+        for sym, f in feats_a.items():
+            if d not in f.index:
+                continue
+            row = f.loc[d]
+            if row[["rsi", "roll_low60", "turnover20", "ret20", "vol20"]].isna().any():
+                continue
+            if row["turnover20"] < wc.MIN_TURNOVER_20D or row["vol20"] < wc.MIN_VOL20_PCT:
+                continue
+            if not (wc.RSI_MIN < row["rsi"] < wc.RSI_MAX):
+                continue
+            prox_pct = (row["close"] - row["roll_low60"]) / row["roll_low60"] * 100
+            if prox_pct > wc.PROXIMITY_TO_LOW_MAX_PCT:
+                continue
+            rel = row["ret20"] - idx_ret20.loc[d]
+            if not (rel < wc.RS_ELIGIBILITY_MAX):
+                continue
+            candidates.append((sym, round(float(rel), 4)))
+        candidates.sort(key=lambda x: x[1])  # most negative (best) first
+    else:
+        feats_b = _build_features_b(per_symbol)
+        for sym, f in feats_b.items():
+            if d not in f.index:
+                continue
+            row = f.loc[d]
+            if row[["rsi", "rsi_prev", "vol20_frac", "vol_ema20", "volume_prev"]].isna().any():
+                continue
+            if row["vol20_frac"] < wc.B_MIN_VOL20_FRAC:
+                continue
+            if not (wc.B_RSI_LO <= row["rsi"] <= wc.B_RSI_HI and row["rsi_prev"] < wc.B_RSI_LO):
+                continue
+            if row["vol_ratio"] < wc.B_VOL_MULT:
+                continue
+            if not (row["close"] > row["open"] and row["volume"] > row["volume_prev"]):
+                continue
+            candidates.append((sym, round(float(row["vol_ratio"]), 4)))
+        candidates.sort(key=lambda x: x[1], reverse=True)  # highest first
+
+    rows = [[sym, branch, rank, d] for sym, rank in candidates]
+    overwrite_tab(sheet, "preview_weekly", PREVIEW_HEADER, rows)
+    return {"as_of": d, "branch": branch,
+            "candidates": [{"ticker": s, "rank_metric": r} for s, r in candidates]}
 
 
 def update_views(sheet, records, newly_filled=None):
