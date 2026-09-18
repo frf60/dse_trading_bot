@@ -1,13 +1,18 @@
-name: DSE Weekly Combined Regime Pipeline
+name: DSE Combined v1_45stc + v2_allstc Pipeline
 
 on:
   schedule:
-    # 17:30 UTC Friday = 11:30 PM Dhaka time (Asia/Dhaka, UTC+6, no DST).
-    - cron: "30 17 * * 5"
+    # 17:30 UTC daily = 11:30 PM Dhaka time (Asia/Dhaka, UTC+6, no DST).
+    # Runs every day; if RawStaging/RawDailyPrices has no new trading-day
+    # data since the last run, this is a safe no-op (idempotent -- see
+    # run_weekly.py's docstring: ingest dedupes on (date,ticker), scan
+    # only looks at dates after last_scanned_date, and reruns with
+    # nothing new just rewrite the same current views).
+    - cron: "30 17 * * *"
   workflow_dispatch: {}  # manual trigger any time from the Actions tab
 
 jobs:
-  run-weekly:
+  run-pipeline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
