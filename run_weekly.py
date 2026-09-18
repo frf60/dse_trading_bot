@@ -1,7 +1,6 @@
 """
-Entry point for the COMBINED regime-switching weekly pipeline (Branch A:
-Sideways/Downtrend dip-buy, Branch B: Uptrend breakout -- replaces the old
-daily model, Model F, and the earlier Branch-A-only weekly pipeline).
+Entry point for the COMBINED v1_45stc + v2_allstc weekly pipeline --
+REPLACES the old Branch A/B regime-switching pipeline entirely.
 
 Weekly workflow:
   1. Every Friday, before 11:30 PM, paste the past week's rows (Sun-Thu,
@@ -9,22 +8,24 @@ Weekly workflow:
      Low, Close, Volume.
   2. This runs automatically at 11:30 PM Friday (GitHub Action), or run
      it manually any time after pasting.
-  3. That Thursday's regime (idx_ret10 vs +1.5%) picks exactly ONE branch
-     for that week -- Branch A on Sideways/Downtrend weeks, Branch B on
-     Uptrend weeks. Both branches can now produce a Buy/PendingSignals
-     entry; a week is only empty if no candidate cleared that branch's
-     own screen (not an error -- see combined_regime_model.py's docstring).
+  3. Every new trading day in that batch is screened for BOTH v1_45stc
+     (fixed 45-stock dip-below-30-day-high) and v2_allstc (broad-universe
+     sharp-drop) signals -- not gated to one day a week like the old
+     Branch A/B model was. A signal enters at the NEXT trading day's
+     OPEN: most of the week's signals already have that next day in the
+     SAME batch and fill immediately; only a signal on the batch's very
+     last day waits in PendingWeekly for next week's paste.
 
-Off-cycle runs (any day, not just Friday/Thursday): steps 1-5 only ever
-act on a Thursday close -- that's intentional, it's the exact cadence the
-backtested return was measured on. Step 6 is a separate, read-only
-PREVIEW: it screens every ticker against the live regime's branch using
-whatever the latest ingested close is (any weekday), so you can see who's
-currently qualifying between Thursdays. It never queues a trade and never
-touches the Thursday-scan state -- purely informational, written to the
-"Preview" tab.
+BUYING INSTRUCTION CHANGED from the old model: buy at the entry day's
+OPEN price shown in BuyWeekly, not the day's high.
+
+Order matters: scan BEFORE fill, so a signal detected this run can fill
+in this SAME run if its entry day's data already arrived in this week's
+paste. Step 6 (Preview) is read-only and informational -- it shows every
+ticker currently passing either leg's screen as of the latest ingested
+close, without queuing anything or touching scan state.
 """
-from sheets_manager import open_sheet
+from sheets_manager import open_sheet, read_records
 from sheet_data_source import ingest_staging
 import weekly_engine as we
 
@@ -43,35 +44,37 @@ def main():
     print(f"[2/6] Ledger loaded: {len(all_dates)} trading days, latest = {latest_date}, "
           f"{len(per_symbol)} tickers")
 
-    fill_result = we.fill_pending(sheet, per_symbol, all_dates)
-    print(f"[3/6] Filled pending signals: {fill_result['filled']} "
-          f"({fill_result['still_pending']} still waiting on next week's Sunday data)")
-    for entry in fill_result["log"]:
-        print(f"       {entry['action']}: {entry['ticker']} @ {entry['price']} on {entry['date']}")
-
-    records = we.evaluate_active(sheet, per_symbol, all_dates)
-    print(f"[4/6] Evaluated open positions: "
-          f"{sum(1 for r in records if r['status']=='ACTIVE')} still in Hold, "
-          f"{sum(1 for r in records if r['status']!='ACTIVE')} closed (lifetime total)")
+    # Monthly dedup needs every row ever entered (active + closed), so read
+    # active_trades_weekly directly here, BEFORE fill_pending adds today's
+    # new rows to it.
+    all_records_for_dedup = read_records(sheet, "active_trades_weekly", we.ACTIVE_HEADER)
 
     last_scanned = we._get_state(sheet)
-    scan_result = we.scan_new_candidates(sheet, per_symbol, all_dates, last_scanned, records)
+    scan_result = we.scan_new_candidates(sheet, per_symbol, all_dates, last_scanned, all_records_for_dedup)
     we._set_state(sheet, latest_date)
-    print(f"[5/6] Scanned for new Thursday signals since {last_scanned or '(first run)'}: "
+    print(f"[3/6] Scanned for new v1_45stc/v2_allstc signals since {last_scanned or '(first run)'}: "
           f"{scan_result}")
+
+    fill_result = we.fill_pending(sheet, per_symbol, all_dates)
+    print(f"[4/6] Filled pending signals: {fill_result['filled']} "
+          f"({fill_result['still_pending']} still waiting on next week's data)")
+    for entry in fill_result["log"]:
+        print(f"       {entry['action']}: {entry['ticker']} ({entry['model']}) "
+              f"@ {entry['price']} on {entry['date']}")
+
+    records = we.evaluate_active(sheet, per_symbol, all_dates)
+    print(f"[5/6] Evaluated open positions: "
+          f"{sum(1 for r in records if r['status']=='ACTIVE')} still in Hold, "
+          f"{sum(1 for r in records if r['status']!='ACTIVE')} closed (lifetime total)")
 
     we.update_views(sheet, records, newly_filled=fill_result["log"])
 
     preview = we.preview_today(sheet, per_symbol, all_dates)
-    if preview["branch"] is None:
-        print(f"[6/6] PREVIEW: {preview.get('note', 'index/ledger not ready yet')}")
-    else:
-        print(f"[6/6] PREVIEW (informational only, as of {preview['as_of']}, "
-              f"live branch={preview['branch']}): {len(preview['candidates'])} ticker(s) "
-              f"currently passing the screen (see 'Preview' tab) -- NOT queued as trades; "
-              f"the real signal still only fires on Thursday's close.")
-        for c in preview["candidates"][:15]:
-            print(f"       {c['ticker']}: rank_metric={c['rank_metric']}")
+    print(f"[6/6] PREVIEW (informational only, as of {preview['as_of']}): "
+          f"{len(preview['candidates'])} ticker(s) currently passing v1_45stc/v2_allstc's "
+          f"screen (see 'Preview' tab) -- NOT queued, purely a look-ahead.")
+    for c in preview["candidates"][:15]:
+        print(f"       {c['ticker']} ({c['model']}): rsi={c['rsi']}")
 
 
 if __name__ == "__main__":
